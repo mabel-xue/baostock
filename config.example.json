@@ -1,0 +1,25 @@
+{
+  "default_source": "baostock",
+  "fallback_sources": ["tushare", "akshare"],
+  "sources_config": {
+    "baostock": {},
+    "tushare": {
+      "token": "your_tushare_token_here"
+    },
+    "akshare": {}
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  },
+  "cache": {
+    "enabled": false,
+    "cache_dir": ".cache",
+    "expire_hours": 24
+  },
+  "query": {
+    "retry_times": 3,
+    "retry_delay": 1,
+    "timeout": 30
+  }
+}

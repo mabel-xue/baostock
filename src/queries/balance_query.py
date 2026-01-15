@@ -7,16 +7,22 @@ import baostock as bs
 import logging
 from typing import Optional, List, Union
 from datetime import datetime
-from ..core.base_query import BaseQuery
+from core.base_query import BaseQuery
 
 logger = logging.getLogger(__name__)
 
 
 class BalanceQuery(BaseQuery):
-    """资产负债表查询类"""
+    """资产负债表查询类，支持多数据源"""
     
-    def __init__(self):
-        super().__init__()
+    def __init__(self, datasource=None):
+        """
+        初始化资产负债表查询
+        
+        Args:
+            datasource: 数据源实例或数据源管理器。如果为None，使用默认BaoStock
+        """
+        super().__init__(datasource)
     
     def query(
         self,
@@ -36,37 +42,78 @@ class BalanceQuery(BaseQuery):
             Optional[pd.DataFrame]: 资产负债表数据
         """
         if not self.ensure_connection():
-            logger.error("无法连接到BaoStock")
+            logger.error("无法连接到数据源")
             return None
         
         try:
-            # 标准化股票代码
-            code = self._normalize_code(code)
+            # 如果使用新的数据源系统
+            if self.datasource is not None:
+                return self._query_with_datasource(code, year, quarter)
             
-            # 构建查询参数
-            if year and quarter:
-                # 季度查询
-                rs = bs.query_balance_data(code=code, year=year, quarter=quarter)
-            elif year:
-                # 年度查询
-                rs = bs.query_balance_data(code=code, year=year, quarter=4)
-            else:
-                # 查询最近一期
-                current_year = datetime.now().year
-                rs = bs.query_balance_data(code=code, year=current_year, quarter=4)
-            
-            df = self._result_to_dataframe(rs)
-            
-            if df is not None and not df.empty:
-                logger.info(f"成功查询 {code} 的资产负债表数据，共 {len(df)} 条记录")
-                # 数据类型转换
-                df = self._convert_dtypes(df)
-            
-            return df
+            # 使用传统的BaoStock查询
+            return self._query_with_baostock(code, year, quarter)
             
         except Exception as e:
             logger.error(f"查询 {code} 资产负债表数据时出错: {str(e)}")
             return None
+    
+    def _query_with_datasource(
+        self,
+        code: str,
+        year: Optional[int] = None,
+        quarter: Optional[int] = None
+    ) -> Optional[pd.DataFrame]:
+        """使用新数据源系统查询"""
+        from datasource.datasource_manager import DataSourceManager
+        
+        # 如果是数据源管理器，使用故障转移查询
+        if isinstance(self.datasource, DataSourceManager):
+            df = self.datasource.query_with_fallback(
+                'query_balance_sheet',
+                code=code,
+                year=year,
+                quarter=quarter
+            )
+        else:
+            # 单个数据源
+            df = self.datasource.query_balance_sheet(
+                code=code,
+                year=year,
+                quarter=quarter
+            )
+        
+        if df is not None and not df.empty:
+            logger.info(f"成功查询 {code} 的资产负债表数据，共 {len(df)} 条记录")
+            df = self._convert_dtypes(df)
+        
+        return df
+    
+    def _query_with_baostock(
+        self,
+        code: str,
+        year: Optional[int] = None,
+        quarter: Optional[int] = None
+    ) -> Optional[pd.DataFrame]:
+        """使用传统BaoStock查询"""
+        # 标准化股票代码
+        code = self._normalize_code(code)
+        
+        # 构建查询参数
+        if year and quarter:
+            rs = bs.query_balance_data(code=code, year=year, quarter=quarter)
+        elif year:
+            rs = bs.query_balance_data(code=code, year=year, quarter=4)
+        else:
+            current_year = datetime.now().year
+            rs = bs.query_balance_data(code=code, year=current_year, quarter=4)
+        
+        df = self._result_to_dataframe(rs)
+        
+        if df is not None and not df.empty:
+            logger.info(f"成功查询 {code} 的资产负债表数据，共 {len(df)} 条记录")
+            df = self._convert_dtypes(df)
+        
+        return df
     
     def query_multiple(
         self,

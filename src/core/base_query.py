@@ -6,28 +6,64 @@ import pandas as pd
 import baostock as bs
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional, List
-from .connection import BaoStockConnection
+from typing import Optional, List, Union
+from core.connection import BaoStockConnection
 
 logger = logging.getLogger(__name__)
 
+# 延迟导入数据源模块，避免循环依赖
+try:
+    from datasource.base_datasource import BaseDataSource
+    from datasource.datasource_manager import DataSourceManager
+    DATASOURCE_AVAILABLE = True
+except ImportError:
+    DATASOURCE_AVAILABLE = False
+    logger.debug("数据源模块不可用，使用传统BaoStock连接")
+
 
 class BaseQuery(ABC):
-    """查询基类，定义通用查询接口"""
+    """查询基类，定义通用查询接口，支持多数据源"""
     
-    def __init__(self):
-        self.connection = BaoStockConnection()
+    def __init__(self, datasource: Optional[Union['BaseDataSource', 'DataSourceManager']] = None):
+        """
+        初始化查询类
+        
+        Args:
+            datasource: 数据源实例或数据源管理器。
+                       如果为None，则使用传统的BaoStock连接
+        """
+        self.datasource = datasource
+        self.connection = None
+        
+        # 如果没有提供数据源，使用传统的BaoStock连接
+        if self.datasource is None:
+            self.connection = BaoStockConnection()
     
     def ensure_connection(self) -> bool:
         """
-        确保已连接到BaoStock
+        确保已连接到数据源
         
         Returns:
             bool: 是否已连接
         """
-        if not self.connection.is_connected():
-            return self.connection.login()
-        return True
+        # 如果使用新的数据源系统
+        if self.datasource is not None:
+            if hasattr(self.datasource, 'is_connected'):
+                # 单个数据源
+                if not self.datasource.is_connected():
+                    return self.datasource.connect()
+                return True
+            else:
+                # 数据源管理器，总是返回True
+                return True
+        
+        # 使用传统的BaoStock连接
+        if self.connection is not None:
+            if not self.connection.is_connected():
+                return self.connection.login()
+            return True
+        
+        return False
     
     @abstractmethod
     def query(self, *args, **kwargs) -> Optional[pd.DataFrame]:
