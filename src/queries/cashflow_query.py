@@ -7,7 +7,7 @@ import baostock as bs
 import logging
 from typing import Optional, List, Union
 from datetime import datetime
-from core.base_query import BaseQuery
+from ..core.base_query import BaseQuery
 
 logger = logging.getLogger(__name__)
 

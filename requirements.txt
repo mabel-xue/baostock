@@ -3,5 +3,5 @@ pandas>=1.3.0
 python-dateutil>=2.8.0
 
 # 可选数据源（按需安装）
-# tushare>=1.2.0  # 需要token: https://tushare.pro/register
+tushare>=1.2.0  # 需要token: https://tushare.pro/register
 akshare>=1.10.0  # 免费无需token

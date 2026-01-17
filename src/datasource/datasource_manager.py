@@ -146,14 +146,18 @@ class DataSourceManager:
                 if result is not None and not result.empty:
                     logger.info(f"使用数据源 {src_type.value} 查询成功")
                     return result
+                elif result is not None and result.empty:
+                    # 返回空DataFrame是正常情况（如基金没有持仓数据）
+                    logger.debug(f"数据源 {src_type.value} 返回空结果（数据不存在）")
+                    return result
                 else:
-                    logger.warning(f"数据源 {src_type.value} 返回空结果")
+                    logger.warning(f"数据源 {src_type.value} 返回None")
                     
             except Exception as e:
                 logger.error(f"数据源 {src_type.value} 查询失败: {str(e)}")
                 continue
         
-        logger.error(f"所有数据源都查询失败: {query_method}")
+        logger.warning(f"所有数据源都无法查询: {query_method}")
         return None
     
     def set_default_source(self, source_type: DataSourceType):

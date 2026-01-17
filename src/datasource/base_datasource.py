@@ -194,3 +194,78 @@ class BaseDataSource(ABC):
             str: 数据源名称
         """
         return self.source_type.value if self.source_type else "unknown"
+    
+    def query_fund_basic(self, **kwargs) -> Optional[pd.DataFrame]:
+        """
+        查询基金基本信息
+        
+        Args:
+            **kwargs: 查询参数（如基金代码、基金类型等）
+            
+        Returns:
+            Optional[pd.DataFrame]: 基金基本信息
+        """
+        logger.warning(f"数据源 {self.get_source_name()} 不支持基金基本信息查询")
+        return None
+    
+    def query_fund_holdings(
+        self,
+        fund_code: str,
+        period: Optional[str] = None,
+        **kwargs
+    ) -> Optional[pd.DataFrame]:
+        """
+        查询基金持仓明细
+        
+        Args:
+            fund_code: 基金代码
+            period: 报告期（格式：2024Q3 或 20240331）
+            **kwargs: 其他参数
+            
+        Returns:
+            Optional[pd.DataFrame]: 基金持仓数据
+        """
+        logger.warning(f"数据源 {self.get_source_name()} 不支持基金持仓查询")
+        return None
+    
+    def query_fund_nav(
+        self,
+        fund_code: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        **kwargs
+    ) -> Optional[pd.DataFrame]:
+        """
+        查询基金净值
+        
+        Args:
+            fund_code: 基金代码
+            start_date: 开始日期
+            end_date: 结束日期
+            **kwargs: 其他参数
+            
+        Returns:
+            Optional[pd.DataFrame]: 基金净值数据
+        """
+        logger.warning(f"数据源 {self.get_source_name()} 不支持基金净值查询")
+        return None
+    
+    def query_institutional_holdings(
+        self,
+        stock_code: Optional[str] = None,
+        period: Optional[str] = None,
+        **kwargs
+    ) -> Optional[pd.DataFrame]:
+        """
+        查询机构持仓明细
+        
+        Args:
+            stock_code: 股票代码（可选，不提供则查询所有机构持仓）
+            period: 报告期（格式：2024Q3 或 20240331）
+            **kwargs: 其他参数
+            
+        Returns:
+            Optional[pd.DataFrame]: 机构持仓数据
+        """
+        logger.warning(f"数据源 {self.get_source_name()} 不支持机构持仓查询")
+        return None

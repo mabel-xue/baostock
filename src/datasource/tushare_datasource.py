@@ -17,7 +17,7 @@ try:
     TUSHARE_AVAILABLE = True
 except ImportError:
     TUSHARE_AVAILABLE = False
-    logger.warning("Tushare未安装，请运行: pip install tushare")
+    logger.debug("Tushare未安装，如需使用请运行: pip install tushare")
 
 
 class TushareDataSource(BaseDataSource):

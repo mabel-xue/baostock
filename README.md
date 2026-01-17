@@ -183,6 +183,7 @@ BaoStock 公司分析工具 - 现金流量查询
 - 📘 [多数据源使用文档](DATASOURCE_README.md) - 详细的多数据源使用指南
 - 📗 [实施总结](MULTI_DATASOURCE_SUMMARY.md) - 多数据源功能实施总结
 - 📙 [配置示例](config.example.json) - 配置文件模板
+- 📕 [日志系统使用指南](LOGGING_GUIDE.md) - 日志配置和使用说明
 
 ### API 文档
 
@@ -396,13 +397,16 @@ baostock/
 │   ├── advanced_usage.py         # 高级使用示例
 │   ├── multi_datasource_usage.py # 多数据源示例
 │   └── datasource_comparison.py  # 数据源对比
+├── logs/                         # 日志文件目录（自动生成）
+│   └── README.md                 # 日志目录说明
 ├── main.py                       # 主程序入口
 ├── setup.py                      # 安装配置
 ├── requirements.txt              # 依赖列表
 ├── config.example.json           # 配置文件模板
 ├── README.md                     # 项目文档（本文件）
 ├── DATASOURCE_README.md          # 多数据源文档
-└── MULTI_DATASOURCE_SUMMARY.md   # 实施总结
+├── MULTI_DATASOURCE_SUMMARY.md   # 实施总结
+└── LOGGING_GUIDE.md              # 日志系统使用指南
 ```
 
 ---
@@ -524,6 +528,19 @@ with DataSourceManager(config) as manager:
 
 不需要！项目完全向后兼容，旧代码可以继续使用。
 
+### Q6: 如何启用日志记录？
+
+使用 `setup_logger` 函数即可自动启用日志记录到 `logs/` 目录：
+
+```python
+from src.utils.logger import setup_logger
+
+logger = setup_logger('my_app')
+logger.info("应用启动")
+```
+
+详见 [日志系统使用指南](LOGGING_GUIDE.md)。
+
 ---
 
 ## 🛠️ 开发
@@ -585,6 +602,13 @@ python examples/multi_datasource_usage.py
 ---
 
 ## 📊 更新日志
+
+### v0.2.1 (2026-01-16)
+
+- ✨ 新增日志系统，自动保存到 `logs/` 目录
+- ✨ 日志文件按日期和模块名称自动命名
+- 📚 添加完整的日志使用指南
+- 🔧 优化日志配置，支持多种使用场景
 
 ### v0.2.0 (2026-01-15)
 

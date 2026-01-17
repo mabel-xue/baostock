@@ -7,14 +7,14 @@ import baostock as bs
 import logging
 from abc import ABC, abstractmethod
 from typing import Optional, List, Union
-from core.connection import BaoStockConnection
+from .connection import BaoStockConnection
 
 logger = logging.getLogger(__name__)
 
 # 延迟导入数据源模块，避免循环依赖
 try:
-    from datasource.base_datasource import BaseDataSource
-    from datasource.datasource_manager import DataSourceManager
+    from ..datasource.base_datasource import BaseDataSource
+    from ..datasource.datasource_manager import DataSourceManager
     DATASOURCE_AVAILABLE = True
 except ImportError:
     DATASOURCE_AVAILABLE = False
