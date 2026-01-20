@@ -187,6 +187,37 @@ class FundPreferenceMonitor:
                 logger.warning("未获取到机构偏好数据")
                 return None, fund_lists_dict
     
+    def query_institutional_preference_by_period(self, fund_codes: list, period: str = None, top_n: int = 30):
+        """
+        查询指定报告期的机构偏好数据
+        
+        Args:
+            fund_codes: 基金代码列表
+            period: 报告期，格式如 "2024Q4"，None表示最新数据
+            top_n: 返回前N只股票
+            
+        Returns:
+            Optional[pd.DataFrame]: 机构偏好股票DataFrame
+        """
+        if not fund_codes:
+            logger.warning("基金代码列表为空")
+            return None
+        
+        with DataSourceManager(self.config) as manager:
+            query = FundHoldingsQuery(datasource=manager)
+            logger.info(f"查询报告期 {period or '最新'} 的机构偏好数据，使用 {len(fund_codes)} 只基金...")
+            preference_result = query.analyze_institutional_preference(
+                fund_codes=fund_codes,
+                period=period,
+                top_n=top_n
+            )
+            
+            if 'top_holdings' in preference_result and not preference_result['top_holdings'].empty:
+                return preference_result['top_holdings']
+            else:
+                logger.warning(f"未获取到报告期 {period or '最新'} 的机构偏好数据")
+                return None
+    
     def monitor_fund_holdings_changes(self, fund_codes: list, compare_period: str = None):
         """
         监测基金持仓变化
@@ -211,6 +242,139 @@ class FundPreferenceMonitor:
             
             return current_holdings
     
+    def monitor_top_funds_by_scale(self, top_n: int = 20):
+        """
+        监测规模前N只基金的资金动向
+        
+        使用基金规模排序，获取规模最大的前N只股票型基金，
+        过滤规则：排除B/C/E/D/H类基金，保留A类和无收费类型后缀的基金
+        
+        Args:
+            top_n: 监测规模前N只基金，默认20
+            
+        Returns:
+            tuple: (top_holdings_df, fund_lists_dict)
+                - top_holdings_df: 机构偏好股票DataFrame
+                - fund_lists_dict: 包含基金列表的字典，格式为 {'规模排名': [(序号, 基金代码, 基金名称, 规模), ...]}
+        """
+        logger.info(f"开始监测规模前 {top_n} 只基金的资金动向...")
+        
+        with DataSourceManager(self.config) as manager:
+            query = FundHoldingsQuery(datasource=manager)
+            datasource = manager.get_datasource()
+            
+            all_fund_codes = []  # 存储所有基金代码
+            fund_lists_dict = {}  # 存储基金列表（带序号）
+            
+            # 使用规模排序
+            logger.info(f"\n{'='*60}")
+            logger.info(f"查询规模前 {top_n} 的股票型基金...")
+            logger.info(f"{'='*60}")
+            
+            # 使用 query_fund_scale 获取基金规模排名，指定股票型基金
+            fund_scale_df = datasource.query_fund_scale(
+                top_n=top_n*2, 
+                fund_type='股票型基金', 
+                sort_by='最近总份额'
+            )  # 多取一些，以便过滤后还有足够数量
+            
+            if fund_scale_df is None or fund_scale_df.empty:
+                logger.warning(f"未查询到基金规模数据")
+                fund_lists_dict['规模排名'] = []
+            else:
+                # 剔除多收费类型基金，只保留A类；没有收费类型的也保留
+                # 基金代码列可能是 '基金代码' 或 '代码'
+                code_col = '基金代码' if '基金代码' in fund_scale_df.columns else '代码'
+                name_col = '基金简称' if '基金简称' in fund_scale_df.columns else '基金名称'
+                scale_col = '最近总份额' if '最近总份额' in fund_scale_df.columns else '总募集规模'
+                
+                # 过滤逻辑：
+                # 1. 如果基金名称以A/B/C/E/D/H结尾（有收费类型），只保留A类
+                # 2. 如果基金名称不以这些字母结尾（无收费类型），保留
+                # 排除：以B/C/E/D/H结尾的基金
+                filtered_df = fund_scale_df[
+                    ~fund_scale_df[name_col].str.contains('B$|C$|E$|D$|H$', regex=True, na=False)
+                ].copy()
+                
+                # 取前top_n个
+                filtered_df = filtered_df.head(top_n)
+                
+                # 提取基金代码和名称，并添加序号
+                scale_fund_list = []
+                for idx, row in filtered_df.iterrows():
+                    fund_code = row[code_col]
+                    fund_name = row[name_col]
+                    scale_value = row.get(scale_col, 'N/A')
+                    scale_fund_list.append((len(scale_fund_list) + 1, fund_code, fund_name, scale_value))
+                
+                fund_lists_dict['规模排名'] = scale_fund_list
+                scale_fund_codes = [item[1] for item in scale_fund_list]  # 提取基金代码
+                
+                # 打印基金数据
+                print(f"\n{'='*80}")
+                print(f"规模前 {len(scale_fund_codes)} 只股票型基金（已过滤B/C/E/D/H类，保留A类和无收费类型后缀的基金）")
+                print(f"{'='*80}")
+                
+                # 显示关键列
+                display_cols = [code_col, name_col, scale_col]
+                if all(col in filtered_df.columns for col in display_cols):
+                    print(filtered_df[display_cols].to_string(index=False))
+                else:
+                    print(filtered_df.to_string(index=False))
+                
+                logger.info(f"规模排名筛选出 {len(scale_fund_codes)} 只基金")
+                
+                # 添加到总列表
+                all_fund_codes.extend(scale_fund_codes)
+            
+            # 去重（虽然规模排名不需要去重，但保持接口一致）
+            unique_fund_codes = list(dict.fromkeys(all_fund_codes))  # 保持顺序的去重
+            
+            print(f"\n{'='*80}")
+            print(f"规模排名基金列表")
+            print(f"{'='*80}")
+            print(f"共 {len(unique_fund_codes)} 只基金")
+            print(f"基金代码列表: {unique_fund_codes}")
+            
+            logger.info(f"共 {len(unique_fund_codes)} 只基金用于分析")
+            
+            if not unique_fund_codes:
+                logger.error("未获取到任何基金数据")
+                return None, fund_lists_dict
+            
+            # 使用基金列表分析机构偏好
+            logger.info(f"\n开始分析 {len(unique_fund_codes)} 只基金的机构偏好...")
+            preference_result = query.analyze_institutional_preference(
+                fund_codes=unique_fund_codes,
+                period=None,  # 使用最新数据
+                top_n=30
+            )
+            
+            if 'top_holdings' in preference_result and not preference_result['top_holdings'].empty:
+                # 保存结果
+                output_file = self.output_dir / f"institutional_preference_by_scale_{datetime.now().strftime('%Y%m%d')}.csv"
+                preference_result['top_holdings'].to_csv(output_file, index=False, encoding='utf-8-sig')
+                logger.info(f"机构偏好分析结果已保存至: {output_file}")
+                
+                # 打印Top 10
+                print(f"\n{'='*80}")
+                print(f"最受机构偏好的前10只股票（基于规模前{top_n}只基金）:")
+                print(f"{'='*80}")
+                
+                top_10 = preference_result['top_holdings'].head(10)
+                for idx, row in top_10.iterrows():
+                    stock_col = '股票代码' if '股票代码' in row else '代码'
+                    count_col = '持有基金数'
+                    stock_code = row.get(stock_col, 'N/A')
+                    fund_count = row.get(count_col, 0)
+                    stock_name = row.get('股票名称', 'N/A')
+                    print(f"  {idx+1}. {stock_code} {stock_name}: 被 {fund_count} 只基金持有")
+                
+                return preference_result['top_holdings'], fund_lists_dict
+            else:
+                logger.warning("未获取到机构偏好数据")
+                return None, fund_lists_dict
+    
     def generate_report(self):
         """
         生成监测报告
@@ -223,35 +387,56 @@ class FundPreferenceMonitor:
         report_lines.append(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         report_lines.append("=" * 80)
         
-        # 监测机构偏好
-        top_holdings, fund_lists_dict = self.monitor_top_funds(top_n=20)
+        # 监测机构偏好（使用规模排序）
+        top_holdings, fund_lists_dict = self.monitor_top_funds_by_scale(top_n=20)
         
-        # 添加三组基金列表到报告
+        # 添加基金列表到报告
         report_lines.append("\n【监测基金列表】")
         report_lines.append("-" * 80)
         
-        periods = ['近3年', '近2年', '近1年']
-        for period in periods:
-            if period in fund_lists_dict and fund_lists_dict[period]:
-                report_lines.append(f"\n{period} 收益率前 {len(fund_lists_dict[period])} 只股票型基金（已过滤，只保留A类）:")
-                report_lines.append("-" * 80)
-                for seq, fund_code, fund_name, return_rate in fund_lists_dict[period]:
-                    report_lines.append(f"  {seq}. {fund_code} {fund_name} ({return_rate})")
-            else:
-                report_lines.append(f"\n{period}: 未查询到数据")
-        
-        # 统计去重后的基金数量
-        all_fund_codes = []
-        for period_list in fund_lists_dict.values():
-            all_fund_codes.extend([item[1] for item in period_list])
-        unique_count = len(set(all_fund_codes))
-        report_lines.append(f"\n三组基金去重合并: 原始总数 {len(all_fund_codes)} 只，去重后 {unique_count} 只")
-        
-        if top_holdings is not None and not top_holdings.empty:
-            report_lines.append("\n【机构偏好分析】")
+        # 显示规模排名的基金
+        if '规模排名' in fund_lists_dict and fund_lists_dict['规模排名']:
+            report_lines.append(f"\n规模前 {len(fund_lists_dict['规模排名'])} 只股票型基金（已过滤B/C/E/D/H类，保留A类和无收费类型后缀的基金）:")
             report_lines.append("-" * 80)
-            report_lines.append("最受机构偏好的前10只股票:")
+            for seq, fund_code, fund_name, scale_value in fund_lists_dict['规模排名']:
+                report_lines.append(f"  {seq}. {fund_code} {fund_name} (规模: {scale_value})")
+        else:
+            report_lines.append(f"\n规模排名: 未查询到数据")
+        
+        # 统计基金数量
+        all_fund_codes = []
+        if '规模排名' in fund_lists_dict:
+            all_fund_codes.extend([item[1] for item in fund_lists_dict['规模排名']])
+        unique_fund_codes = list(dict.fromkeys(all_fund_codes))  # 保持顺序的去重
+        unique_count = len(unique_fund_codes)
+        report_lines.append(f"\n使用规模排名基金: 共 {unique_count} 只")
+        
+        # 查询2024Q4的机构偏好数据（使用相同的基金列表）
+        holdings_2024q4 = self.query_institutional_preference_by_period(
+            fund_codes=unique_fund_codes,
+            period="2024Q4",
+            top_n=20
+        )
+        
+        # 添加机构偏好分析到报告
+        report_lines.append("\n【机构偏好分析】")
+        report_lines.append("-" * 80)
+        
+        # 添加2025（最新）数据
+        if top_holdings is not None and not top_holdings.empty:
+            report_lines.append("\n2025（最新）最受机构偏好的前10只股票:")
             for idx, row in top_holdings.head(10).iterrows():
+                stock_col = '股票代码' if '股票代码' in row else '代码'
+                count_col = '持有基金数'
+                stock_code = row.get(stock_col, 'N/A')
+                fund_count = row.get(count_col, 0)
+                stock_name = row.get('股票名称', 'N/A')
+                report_lines.append(f"  {idx+1}. {stock_code} {stock_name}: 被 {fund_count} 只基金持有")
+        
+        # 添加2024Q4数据
+        if holdings_2024q4 is not None and not holdings_2024q4.empty:
+            report_lines.append("\n2024Q4 最受机构偏好的前10只股票:")
+            for idx, row in holdings_2024q4.head(10).iterrows():
                 stock_col = '股票代码' if '股票代码' in row else '代码'
                 count_col = '持有基金数'
                 stock_code = row.get(stock_col, 'N/A')

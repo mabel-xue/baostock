@@ -628,3 +628,89 @@ class AkShareDataSource(BaseDataSource):
         except Exception as e:
             logger.error(f"查询基金排名失败: {str(e)}")
             return None
+    
+    def query_fund_scale(
+        self,
+        top_n: int = 100,
+        fund_type: str = "股票型基金",
+        sort_by: str = "最近总份额",
+        **kwargs
+    ) -> Optional[pd.DataFrame]:
+        """
+        查询基金规模排名（开放式基金）
+        
+        根据AkShare官方文档，使用 fund_scale_open_sina(symbol) 查询基金规模
+        返回包含：基金代码、基金简称、单位净值、总募集规模、最近总份额、成立日期、基金经理等
+        
+        Args:
+            top_n: 返回前N个基金，默认100
+            fund_type: 基金类型，支持以下选项：
+                - "股票型基金" - 股票型基金（默认）
+                - "混合型基金" - 混合型基金
+                - "债券型基金" - 债券型基金
+                - "货币型基金" - 货币型基金
+                - "QDII基金" - QDII基金
+            sort_by: 排序字段，支持以下选项：
+                - "最近总份额" - 按最近总份额排序（默认，代表当前规模）
+                - "总募集规模" - 按总募集规模排序（成立时募集规模）
+            **kwargs: 其他参数
+            
+        Returns:
+            Optional[pd.DataFrame]: 基金规模数据DataFrame，按指定字段降序排列
+            
+        Examples:
+            >>> # 查询规模前50的股票型基金
+            >>> df = datasource.query_fund_scale(top_n=50, fund_type="股票型基金")
+            
+            >>> # 查询规模前100的混合型基金
+            >>> df = datasource.query_fund_scale(top_n=100, fund_type="混合型基金")
+        """
+        if not self._is_connected:
+            logger.error("未连接到AkShare")
+            return None
+        
+        try:
+            # 根据官方文档，使用 fund_scale_open_sina(symbol)
+            # symbol: 基金类型，如 "股票型基金"、"混合型基金"、"债券型基金"等
+            logger.info(f"查询基金规模: 类型={fund_type}, 排序字段={sort_by}, 前{top_n}个")
+            df = ak.fund_scale_open_sina(symbol=fund_type)
+            
+            if df is None or df.empty:
+                logger.warning(f"未查询到基金规模数据")
+                return pd.DataFrame()
+            
+            logger.info(f"查询到 {len(df)} 条基金规模数据，列名: {list(df.columns)}")
+            
+            # 检查排序字段是否存在
+            if sort_by not in df.columns:
+                logger.warning(f"排序字段 '{sort_by}' 不存在于数据中，可用字段: {list(df.columns)}")
+                logger.warning(f"将返回原始数据的前{top_n}条")
+                return df.head(top_n)
+            
+            # 按指定字段降序排序，并返回前N个
+            try:
+                # 尝试转换为数值类型
+                df_sorted = df.copy()
+                if df_sorted[sort_by].dtype == 'object':
+                    # 如果是字符串类型，尝试转换
+                    df_sorted[sort_by] = pd.to_numeric(df_sorted[sort_by], errors='coerce')
+                
+                # 按指定字段降序排序
+                df_sorted = df_sorted.sort_values(by=sort_by, ascending=False, na_position='last')
+                result = df_sorted.head(top_n)
+                
+                logger.info(f"成功返回按 '{sort_by}' 排序的前{top_n}个基金")
+                return result
+                
+            except Exception as e:
+                logger.warning(f"排序失败: {str(e)}，返回原始数据的前{top_n}条")
+                return df.head(top_n)
+            
+        except AttributeError as e:
+            logger.error(f"接口不存在: {str(e)}")
+            logger.info("提示: 请确保已安装最新版本的akshare: pip install --upgrade akshare")
+            logger.info("提示: 正确接口应为 fund_scale_open_sina(symbol)")
+            return None
+        except Exception as e:
+            logger.error(f"查询基金规模失败: {str(e)}")
+            return None
