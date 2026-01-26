@@ -714,3 +714,65 @@ class AkShareDataSource(BaseDataSource):
         except Exception as e:
             logger.error(f"查询基金规模失败: {str(e)}")
             return None
+    
+    def query_stock_fundamental(
+        self,
+        code: str,
+        **kwargs
+    ) -> Optional[pd.DataFrame]:
+        """
+        查询股票基本面信息（财务指标）
+        
+        使用 stock_financial_analysis_indicator(symbol) 查询股票财务指标
+        返回包含：报告期、净利润、净资产收益率、毛利率、总资产收益率等多维度财务指标
+        
+        Args:
+            code: 股票代码（6位数字），如 "600519"
+            **kwargs: 其他参数
+                - year: 年份，如 2023（可选，用于过滤特定年份数据）
+            
+        Returns:
+            Optional[pd.DataFrame]: 股票基本面数据DataFrame
+            
+        Examples:
+            >>> # 查询贵州茅台的基本面信息
+            >>> df = datasource.query_stock_fundamental(code="600519")
+            
+            >>> # 查询2023年的基本面信息
+            >>> df = datasource.query_stock_fundamental(code="600519", year=2023)
+        """
+        if not self._is_connected:
+            logger.error("未连接到AkShare")
+            return None
+        
+        try:
+            # 提取纯数字代码
+            code = self._extract_code(code)
+            
+            # 使用 stock_financial_analysis_indicator 查询财务指标
+            logger.info(f"查询股票 {code} 的基本面信息")
+            df = ak.stock_financial_analysis_indicator(symbol=code)
+            
+            if df is None or df.empty:
+                logger.warning(f"未查询到股票 {code} 的基本面数据")
+                return pd.DataFrame()
+            
+            logger.info(f"查询到股票 {code} 的 {len(df)} 条基本面数据")
+            
+            # 如果指定了年份，进行过滤
+            year = kwargs.get('year')
+            if year and not df.empty:
+                if '报告期' in df.columns:
+                    df = df[df['报告期'].str.contains(str(year))]
+                    logger.info(f"过滤 {year} 年数据，剩余 {len(df)} 条")
+            
+            return df
+            
+        except AttributeError as e:
+            logger.error(f"接口不存在: {str(e)}")
+            logger.info("提示: 请确保已安装最新版本的akshare: pip install --upgrade akshare")
+            logger.info("提示: 正确接口应为 stock_financial_analysis_indicator(symbol)")
+            return None
+        except Exception as e:
+            logger.error(f"查询股票基本面失败: {str(e)}")
+            return None

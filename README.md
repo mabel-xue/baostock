@@ -41,6 +41,7 @@ BaoStock 财务分析工具是一个基于 Python 的 A股财务数据查询与�
   - 资产负债表
   - 现金流量表
   - 利润表（即将支持）
+  - **基本面信息查询（新增）**
   
 - ✅ **多数据源支持**
   - BaoStock（默认，免费）
@@ -52,6 +53,7 @@ BaoStock 财务分析工具是一个基于 Python 的 A股财务数据查询与�
   - 批量公司查询
   - 历史数据查询
   - 公司对比分析
+  - **根据公司名称批量查询基本面（新增）**
   - 自动故障转移
   - 动态数据源切换
 
@@ -150,7 +152,37 @@ for code, df in results.items():
         print(f"{code}: {len(df)} 条记录")
 ```
 
-#### 示例 4: 运行主程序
+#### 示例 4: 基本面信息查询（新增）
+
+```python
+from datasource.akshare_datasource import AkShareDataSource
+from queries.fundamental_query import FundamentalQuery
+
+# 使用AkShare数据源
+with AkShareDataSource() as datasource:
+    query = FundamentalQuery(datasource=datasource)
+    
+    # 根据公司名称批量查询基本面
+    company_names = ["贵州茅台", "五粮液", "泸州老窖"]
+    df = query.query_by_names(names=company_names, year=2024)
+    
+    # 显示汇总表
+    print(df)
+    
+    # 保存到CSV
+    df.to_csv("fundamental_data.csv", index=False, encoding='utf-8-sig')
+```
+
+或使用简化版本：
+
+```bash
+# 运行预置示例
+python app/query_fundamental_simple.py
+```
+
+详细使用说明请参考：[基本面查询使用指南.md](基本面查询使用指南.md)
+
+#### 示例 5: 运行主程序
 
 ```bash
 python main.py
