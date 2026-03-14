@@ -245,9 +245,10 @@ class AkShareDataSource(BaseDataSource):
             code: 股票代码
             year: 年份
             **kwargs: 其他参数
+                - start_year: 开始查询年份，默认为 "2025"
             
         Returns:
-            Optional[pd.DataFrame]: 财务指标数据
+            Optional[pd.DataFrame]: 财务指标数据（最新一期）
         """
         if not self._is_connected:
             logger.error("未连接到AkShare")
@@ -256,13 +257,23 @@ class AkShareDataSource(BaseDataSource):
         try:
             code = self._extract_code(code)
             
-            # 获取财务指标
-            df = ak.stock_financial_analysis_indicator(symbol=code)
+            # 获取 start_year 参数，默认为 "2025"
+            start_year = kwargs.get('start_year', '2025')
+            
+            # 获取财务指标，需要传入 start_year 参数
+            df = ak.stock_financial_analysis_indicator(symbol=code, start_year=str(start_year))
+            
+            if df is None or df.empty:
+                return df
             
             # 如果指定了年份，进行过滤
             if year and not df.empty:
                 if '报告期' in df.columns:
                     df = df[df['报告期'].str.contains(str(year))]
+            
+            # 默认返回最新一期数据（最后一条）
+            if not df.empty and not year:
+                df = df.tail(1)
             
             return df
             
@@ -723,19 +734,20 @@ class AkShareDataSource(BaseDataSource):
         """
         查询股票基本面信息（财务指标）
         
-        使用 stock_financial_analysis_indicator(symbol) 查询股票财务指标
+        使用 stock_financial_analysis_indicator(symbol, start_year) 查询股票财务指标
         返回包含：报告期、净利润、净资产收益率、毛利率、总资产收益率等多维度财务指标
         
         Args:
             code: 股票代码（6位数字），如 "600519"
             **kwargs: 其他参数
                 - year: 年份，如 2023（可选，用于过滤特定年份数据）
+                - start_year: 开始查询年份，默认为 "2025"
             
         Returns:
-            Optional[pd.DataFrame]: 股票基本面数据DataFrame
+            Optional[pd.DataFrame]: 股票基本面数据DataFrame（默认返回最新一期）
             
         Examples:
-            >>> # 查询贵州茅台的基本面信息
+            >>> # 查询贵州茅台的最新一期基本面信息
             >>> df = datasource.query_stock_fundamental(code="600519")
             
             >>> # 查询2023年的基本面信息
@@ -749,9 +761,12 @@ class AkShareDataSource(BaseDataSource):
             # 提取纯数字代码
             code = self._extract_code(code)
             
+            # 获取 start_year 参数，默认为 "2025"
+            start_year = kwargs.get('start_year', '2025')
+            
             # 使用 stock_financial_analysis_indicator 查询财务指标
-            logger.info(f"查询股票 {code} 的基本面信息")
-            df = ak.stock_financial_analysis_indicator(symbol=code)
+            logger.info(f"查询股票 {code} 的基本面信息 (start_year={start_year})")
+            df = ak.stock_financial_analysis_indicator(symbol=code, start_year=str(start_year))
             
             if df is None or df.empty:
                 logger.warning(f"未查询到股票 {code} 的基本面数据")
@@ -766,12 +781,17 @@ class AkShareDataSource(BaseDataSource):
                     df = df[df['报告期'].str.contains(str(year))]
                     logger.info(f"过滤 {year} 年数据，剩余 {len(df)} 条")
             
+            # 默认返回最新一期数据（最后一条），除非指定了年份
+            if not df.empty and not year:
+                df = df.tail(1)
+                logger.info(f"返回最新一期数据")
+            
             return df
             
         except AttributeError as e:
             logger.error(f"接口不存在: {str(e)}")
             logger.info("提示: 请确保已安装最新版本的akshare: pip install --upgrade akshare")
-            logger.info("提示: 正确接口应为 stock_financial_analysis_indicator(symbol)")
+            logger.info("提示: 正确接口应为 stock_financial_analysis_indicator(symbol, start_year)")
             return None
         except Exception as e:
             logger.error(f"查询股票基本面失败: {str(e)}")

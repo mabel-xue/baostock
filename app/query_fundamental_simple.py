@@ -34,19 +34,19 @@ def query_fundamental_simple(stock_codes, year=None):
             print(f"正在查询 {code}...", end=" ")
             
             # 使用akshare查询财务指标
-            df = ak.stock_financial_analysis_indicator(symbol=code)
+            df = ak.stock_financial_analysis_indicator(symbol=code, start_year=year)
             
             if df is None or df.empty:
                 print("无数据")
                 continue
             
             # 如果指定了年份，进行过滤
-            if year and '报告期' in df.columns:
-                df = df[df['报告期'].str.contains(str(year))]
+            # if year and '报告期' in df.columns:
+            #     df = df[df['报告期'].str.contains(str(year))]
             
-            if df.empty:
-                print(f"无{year}年数据")
-                continue
+            # if df.empty:
+            #     print(f"无{year}年数据")
+            #     continue
             
             # 获取最近一期数据
             latest = df.iloc[-1]
@@ -95,43 +95,46 @@ def main():
     print("="*80)
     
     # 示例1: 查询白酒股
-    print("\n【示例1】白酒行业基本面:")
-    liquor_stocks = [
-        "600519",  # 贵州茅台
-        "000858",  # 五粮液
-        "000568",  # 泸州老窖
-        "600809",  # 山西汾酒
-        "002304",  # 洋河股份
-    ]
+    # print("\n【示例1】白酒行业基本面:")
+    # liquor_stocks = [
+    #     "600519",  # 贵州茅台
+    #     "000858",  # 五粮液
+    #     "000568",  # 泸州老窖
+    #     "600809",  # 山西汾酒
+    #     "002304",  # 洋河股份
+    # ]
     
-    df1 = query_fundamental_simple(liquor_stocks, year=2024)
+    # df1 = query_fundamental_simple(liquor_stocks, year=2024)
     
-    if df1 is not None and not df1.empty:
-        print("\n基本面信息汇总表:")
-        print("-" * 80)
+    # if df1 is not None and not df1.empty:
+    #     print("\n基本面信息汇总表:")
+    #     print("-" * 80)
         
-        # 设置pandas显示选项
-        pd.set_option('display.max_columns', None)
-        pd.set_option('display.width', None)
-        pd.set_option('display.max_colwidth', 20)
+    #     # 设置pandas显示选项
+    #     pd.set_option('display.max_columns', None)
+    #     pd.set_option('display.width', None)
+    #     pd.set_option('display.max_colwidth', 20)
         
-        print(df1.to_string(index=False))
+    #     print(df1.to_string(index=False))
         
-        # 保存到CSV
-        output_file = "fundamental_liquor.csv"
-        df1.to_csv(output_file, index=False, encoding='utf-8-sig')
-        print(f"\n数据已保存到: {output_file}")
+    #     # 保存到CSV
+    #     output_file = "fundamental_liquor.csv"
+    #     df1.to_csv(output_file, index=False, encoding='utf-8-sig')
+    #     print(f"\n数据已保存到: {output_file}")
     
     # 示例2: 查询银行股
     print("\n" + "="*80)
-    print("\n【示例2】银行股基本面:")
+    print("\n【示例2】高速公路公司基本面:")
     bank_stocks = [
-        "600000",  # 浦发银行
-        "601398",  # 工商银行
-        "601288",  # 农业银行
+        "000429",  # 粤高速A",
+        "600350",  # 山东高速
+        "001965",  # 招商公路
+        "600377",  # 宁沪高速
+        "600012",  # 皖通高速
+        "600033",  # 福建高速
     ]
     
-    df2 = query_fundamental_simple(bank_stocks, year=2024)
+    df2 = query_fundamental_simple(bank_stocks, '2025')
     
     if df2 is not None and not df2.empty:
         print("\n基本面信息汇总表:")
