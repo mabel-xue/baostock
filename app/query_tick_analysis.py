@@ -1,7 +1,9 @@
 """
 个股盘中逐笔成交分析 —— 大单阈值计算与资金流向统计
 
-数据来源: 腾讯财经 (stock_zh_a_tick_tx_js)，仅支持最近交易日
+数据来源:
+  - 腾讯财经 (stock_zh_a_tick_tx_js)：最近交易日（默认）
+  - 新浪财经 (stock_intraday_sina)：指定历史日期
 """
 
 import sys
@@ -14,18 +16,53 @@ import numpy as np
 from datetime import datetime
 
 
-def fetch_tick_data(symbol: str) -> pd.DataFrame:
+def fetch_tick_data(symbol: str, date: str = None) -> pd.DataFrame:
     """
-    获取个股最近交易日逐笔成交数据
+    获取个股逐笔成交数据
 
     Args:
         symbol: 股票代码，格式 sh600519 / sz000001
+        date: 日期（可选），格式 YYYYMMDD。不指定则获取最近交易日数据（腾讯），
+              指定则获取历史数据（新浪）。
+    Returns:
+        统一格式的 DataFrame，列: 成交时间, 成交价格, 价格变动, 成交量, 成交金额, 性质
+        其中成交量单位为手。
     """
+    if date:
+        return _fetch_tick_sina(symbol, date)
+    else:
+        return _fetch_tick_tx(symbol)
+
+
+def _fetch_tick_tx(symbol: str) -> pd.DataFrame:
+    """腾讯接口：最近交易日"""
     df = ak.stock_zh_a_tick_tx_js(symbol=symbol)
     df['成交量'] = pd.to_numeric(df['成交量'], errors='coerce')
     df['成交金额'] = pd.to_numeric(df['成交金额'], errors='coerce')
     df['成交价格'] = pd.to_numeric(df['成交价格'], errors='coerce')
     return df
+
+
+def _fetch_tick_sina(symbol: str, date: str) -> pd.DataFrame:
+    """新浪接口：指定历史日期，统一为腾讯接口的字段格式"""
+    df = ak.stock_intraday_sina(symbol=symbol, date=date)
+
+    kind_map = {'U': '买盘', 'D': '卖盘', 'E': '中性盘'}
+    result = pd.DataFrame()
+    result['成交时间'] = df['ticktime']
+    result['成交价格'] = pd.to_numeric(df['price'], errors='coerce')
+    prev_price = pd.to_numeric(df['prev_price'], errors='coerce')
+    result['价格变动'] = (result['成交价格'] - prev_price).where(prev_price > 0, 0.0)
+    result['成交量'] = pd.to_numeric(df['volume'], errors='coerce') / 100  # 股 -> 手
+    result['成交金额'] = result['成交价格'] * pd.to_numeric(df['volume'], errors='coerce')
+    result['性质'] = df['kind'].map(kind_map).fillna(df['kind'])
+
+    result['成交价格'] = result['成交价格'].round(2)
+    result['价格变动'] = result['价格变动'].round(2)
+    result['成交金额'] = result['成交金额'].round(0)
+    result['成交量'] = result['成交量'].astype(int)
+
+    return result
 
 
 def analyze_big_order_threshold(df: pd.DataFrame) -> dict:
