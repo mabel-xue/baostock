@@ -15,12 +15,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
 import time
-import json
 import logging
-import re
 from datetime import datetime
 
 import pandas as pd
+
+from app.feishu_notify import FEISHU_WEBHOOK_URL, send_feishu
 import requests as http_requests
 
 logging.basicConfig(
@@ -29,11 +29,6 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger(__name__)
-
-FEISHU_WEBHOOK_URL = os.environ.get(
-    "FEISHU_WEBHOOK_URL",
-    "https://open.feishu.cn/open-apis/bot/v2/hook/44073acd-feb1-4da9-828d-d3d3a77e9a53",
-)
 
 TRADING_PERIODS = [
     ("09:15", "11:35"),
@@ -116,36 +111,6 @@ def fetch_all_pages(symbol: str) -> list[dict]:
             break
         page += 1
     return all_records
-
-
-# ── 飞书通知 ──
-
-def send_feishu(webhook_url: str, title: str, lines: list[str]):
-    if not webhook_url:
-        return
-    content_elements = [[{"tag": "text", "text": line}] for line in lines]
-    msg = {
-        "msg_type": "post",
-        "content": {
-            "post": {
-                "zh_cn": {
-                    "title": title,
-                    "content": content_elements,
-                }
-            }
-        },
-    }
-    try:
-        resp = http_requests.post(
-            webhook_url,
-            data=json.dumps(msg, ensure_ascii=False).encode("utf-8"),
-            headers={"Content-Type": "application/json; charset=utf-8"},
-            timeout=5,
-        )
-        if resp.status_code != 200:
-            logger.warning(f"飞书通知发送失败: {resp.status_code} {resp.text}")
-    except Exception as e:
-        logger.warning(f"飞书通知异常: {e}")
 
 
 # ── CSV / 格式化 ──
