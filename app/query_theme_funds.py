@@ -132,7 +132,10 @@ def _fetch_fund_scale(fund_code: str) -> float | None:
                 if "规模" in item and val:
                     num = re.sub(r"[^\d.]", "", val)
                     if num:
-                        return float(num)
+                        result = float(num)
+                        if "万" in val and "亿" not in val:
+                            result = result / 10000
+                        return result
     except Exception:
         pass
 
