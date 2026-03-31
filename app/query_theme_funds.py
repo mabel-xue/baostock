@@ -19,17 +19,14 @@
   # 只看主动基金
   python app/query_theme_funds.py --mode active
 
-  # 按近1年收益排序，取前30
-  python app/query_theme_funds.py --sort 近1年 --top 30
-
   # 设置最小规模阈值（默认1亿，低于此值排除）
   python app/query_theme_funds.py --min-scale 2
 
+  # 跳过规模过滤（设为 0）
+  python app/query_theme_funds.py --min-scale 0
+
   # 跳过持仓过滤（不查持仓，但仍做规模过滤）
   python app/query_theme_funds.py --no-filter
-
-  # 跳过规模过滤
-  python app/query_theme_funds.py --no-scale
 """
 
 from __future__ import annotations
@@ -116,12 +113,15 @@ def _normalize_stock_code(code) -> str:
     return digits[-6:] if len(digits) >= 6 else digits.zfill(6)
 
 
-def _fetch_fund_scale(fund_code: str) -> float | None:
+def _fetch_fund_basic(fund_code: str) -> tuple[float | None, str | None]:
     """
-    查询单只基金最新规模（亿元）。
+    查询单只基金最新规模（亿元）和成立时间。
     优先用 akshare 雪球接口，失败时回退到天天基金页面解析。
-    返回 None 表示无法获取。
+    返回 (规模, 成立时间)，无法获取的字段为 None。
     """
+    scale: float | None = None
+    inception: str | None = None
+
     # 方式1: akshare 雪球接口
     try:
         info = ak.fund_individual_basic_info_xq(symbol=fund_code)
@@ -129,13 +129,18 @@ def _fetch_fund_scale(fund_code: str) -> float | None:
             for _, row in info.iterrows():
                 item = str(row.iloc[0]) if len(row) > 0 else ""
                 val = str(row.iloc[1]) if len(row) > 1 else ""
-                if "规模" in item and val:
+                if "规模" in item and val and scale is None:
                     num = re.sub(r"[^\d.]", "", val)
                     if num:
-                        result = float(num)
+                        scale = float(num)
                         if "万" in val and "亿" not in val:
-                            result = result / 10000
-                        return result
+                            scale = scale / 10000
+                if "成立" in item and val and inception is None:
+                    date_m = re.search(r"\d{4}[-/]\d{2}[-/]\d{2}", val)
+                    if date_m:
+                        inception = date_m.group(0)
+            if scale is not None:
+                return scale, inception
     except Exception:
         pass
 
@@ -148,14 +153,23 @@ def _fetch_fund_scale(fund_code: str) -> float | None:
         }
         r = requests.get(url, headers=headers, timeout=10)
         r.encoding = r.apparent_encoding or "utf-8"
-        # 匹配 "资产规模：XX.XX亿元" 模式
         m = re.search(r"资产规模[：:]\s*([\d.]+)\s*亿", r.text)
-        if m:
-            return float(m.group(1))
+        if m and scale is None:
+            scale = float(m.group(1))
+        if inception is None:
+            dm = re.search(r"成立日期[/成立时间]*[：:]\s*(\d{4}[-/]\d{2}[-/]\d{2})", r.text)
+            if dm:
+                inception = dm.group(1)
     except Exception:
         pass
 
-    return None
+    return scale, inception
+
+
+def _fetch_fund_scale(fund_code: str) -> float | None:
+    """查询单只基金最新规模（亿元），兼容旧调用。"""
+    scale, _ = _fetch_fund_basic(fund_code)
+    return scale
 
 
 MIN_FUND_SCALE = 1.0  # 最小基金规模（亿元），低于此值的基金将被排除
@@ -193,15 +207,25 @@ def filter_by_holdings_and_scale(
     else:
         print(f"\n正在逐只查询，过滤规模 < {min_scale}亿 的基金 ...")
 
+    # 预构建"近1年"值映射，无值的基金跳过持仓查询
+    perf_col = "近1年"
+    has_perf_map: dict[str, bool] = {}
+    if perf_col in df.columns:
+        for fc_tmp in df[code_col].unique():
+            vals = df.loc[df[code_col] == fc_tmp, perf_col]
+            has_perf_map[fc_tmp] = vals.notna().any()
+
     fund_codes = df[code_col].unique().tolist()
     total = len(fund_codes)
     exclude_codes: set[str] = set()
     exclude_holding_details: list[str] = []
     exclude_scale_details: list[str] = []
     scale_map: dict[str, float | None] = {}
+    inception_map: dict[str, str | None] = {}
     holdings_map: dict[str, str] = {}
     checked = 0
     skipped = 0
+    skipped_no_perf = 0
 
     for i, fc in enumerate(fund_codes, 1):
         if i % 20 == 0 or i == total:
@@ -212,9 +236,15 @@ def filter_by_holdings_and_scale(
             names = df.loc[df[code_col] == fc, name_col]
             fund_name = names.iloc[0] if not names.empty else ""
 
-        # 规模检查
-        scale = _fetch_fund_scale(fc)
+        # 近1年业绩无值 → 跳过持仓查询和规模过滤，只展示基本信息
+        if has_perf_map and not has_perf_map.get(fc, True):
+            skipped_no_perf += 1
+            continue
+
+        # 规模 + 成立时间
+        scale, inception = _fetch_fund_basic(fc)
         scale_map[fc] = scale
+        inception_map[fc] = inception
         if scale is not None and scale < min_scale:
             exclude_codes.add(fc)
             exclude_scale_details.append(f"  ✗ {fund_name}({fc}) 规模: {scale:.2f}亿")
@@ -259,7 +289,11 @@ def filter_by_holdings_and_scale(
         checked += 1
 
     # 汇总打印
-    print(f"\n过滤完成: 检查 {checked} 只，跳过(无持仓) {skipped} 只，排除 {len(exclude_codes)} 只")
+    parts = [f"检查 {checked} 只", f"跳过(无持仓) {skipped} 只"]
+    if skipped_no_perf:
+        parts.append(f"跳过(近1年无值) {skipped_no_perf} 只")
+    parts.append(f"排除 {len(exclude_codes)} 只")
+    print(f"\n过滤完成: {', '.join(parts)}")
     if exclude_scale_details:
         print(f"\n规模不足 {min_scale}亿 排除 ({len(exclude_scale_details)} 只):")
         for line in exclude_scale_details:
@@ -275,6 +309,8 @@ def filter_by_holdings_and_scale(
         filtered["基金规模(亿)"] = filtered[code_col].map(scale_map)
     if holdings_map:
         filtered["前十持仓"] = filtered[code_col].map(holdings_map)
+    if inception_map:
+        filtered["成立时间"] = filtered[code_col].map(inception_map)
 
     return filtered
 
@@ -299,6 +335,7 @@ def filter_by_scale_only(
     exclude_codes: set[str] = set()
     exclude_details: list[str] = []
     scale_map: dict[str, float | None] = {}
+    inception_map: dict[str, str | None] = {}
 
     for i, fc in enumerate(fund_codes, 1):
         if i % 20 == 0 or i == total:
@@ -309,8 +346,9 @@ def filter_by_scale_only(
             names = df.loc[df[code_col] == fc, name_col]
             fund_name = names.iloc[0] if not names.empty else ""
 
-        scale = _fetch_fund_scale(fc)
+        scale, inception = _fetch_fund_basic(fc)
         scale_map[fc] = scale
+        inception_map[fc] = inception
         if scale is not None and scale < min_scale:
             exclude_codes.add(fc)
             exclude_details.append(f"  ✗ {fund_name}({fc}) 规模: {scale:.2f}亿")
@@ -323,6 +361,8 @@ def filter_by_scale_only(
     filtered = df[~df[code_col].isin(exclude_codes)].copy()
     if scale_map:
         filtered["基金规模(亿)"] = filtered[code_col].map(scale_map)
+    if inception_map:
+        filtered["成立时间"] = filtered[code_col].map(inception_map)
 
     return filtered
 
@@ -432,7 +472,7 @@ def try_enrich_with_ranking(df: pd.DataFrame) -> pd.DataFrame:
     if code_col is None:
         return df
 
-    perf_fields = ["单位净值", "日期", "日增长率", "近1周", "近1月", "近3月", "近6月", "近1年", "近2年", "近3年", "今年来", "成立来"]
+    perf_fields = ["单位净值", "日期", "日增长率", "近1周", "近1月", "近3月", "近1年", "近2年", "近3年", "今年来", "成立来"]
 
     # 1) 开放式基金排行（覆盖场外基金）
     print("正在查询开放式基金排行以补充收益率 (fund_open_fund_rank_em) ...")
@@ -589,8 +629,8 @@ def display_and_save(
 
     display_cols = []
     for c in ["来源", "基金代码", "基金简称", "基金类型", "基金规模(亿)", "单位净值", "日增长率",
-              "近1周", "近1月", "近3月", "近6月", "近1年", "近2年", "近3年",
-              "今年来", "成立来", "前十持仓", "跟踪标的", "跟踪方式", "手续费"]:
+              "近1周", "近1月", "近3月", "近1年", "近2年", "近3年",
+              "今年来", "成立来", "前十持仓", "跟踪标的", "跟踪方式", "手续费", "成立时间"]:
         if c in df.columns:
             display_cols.append(c)
     if not display_cols:
@@ -637,8 +677,8 @@ def main() -> None:
   python app/query_theme_funds.py                        # 默认查询消费主题
   python app/query_theme_funds.py --theme 医药            # 使用预置医药关键词
   python app/query_theme_funds.py --keywords 消费,白酒    # 自定义关键词
-  python app/query_theme_funds.py --mode index --sort 近1年
-  python app/query_theme_funds.py --mode active --top 50
+  python app/query_theme_funds.py --mode index            # 仅查指数基金
+  python app/query_theme_funds.py --mode active           # 仅查主动基金
         """,
     )
     parser.add_argument(
@@ -654,24 +694,12 @@ def main() -> None:
         help="查询模式: all=指数+主动, index=仅指数基金, active=仅主动基金（默认 all）",
     )
     parser.add_argument(
-        "--sort", type=str, default="近1年",
-        help="排序字段（默认: 近1年）",
-    )
-    parser.add_argument(
-        "--top", type=int, default=50,
-        help="终端展示前N只（默认50，CSV保存全部）",
-    )
-    parser.add_argument(
         "--min-scale", type=float, default=MIN_FUND_SCALE,
         help=f"最小基金规模（亿元），低于此值排除（默认 {MIN_FUND_SCALE}）",
     )
     parser.add_argument(
         "--no-filter", action="store_true",
         help="跳过持仓过滤（不逐只查持仓），但仍做规模过滤",
-    )
-    parser.add_argument(
-        "--no-scale", action="store_true",
-        help="跳过规模过滤",
     )
     args = parser.parse_args()
 
@@ -725,7 +753,7 @@ def main() -> None:
     combined = dedup_fund_shares(combined)
 
     # 统一数值列（提前转换，供业绩过滤使用）
-    for col in ["近1周", "近1月", "近3月", "近6月", "近1年", "近2年", "近3年", "今年来", "成立来", "日增长率"]:
+    for col in ["近1周", "近1月", "近3月", "近1年", "近2年", "近3年", "今年来", "成立来", "日增长率"]:
         if col in combined.columns:
             combined[col] = pd.to_numeric(combined[col], errors="coerce")
 
@@ -738,7 +766,7 @@ def main() -> None:
             print(f"\n排除成立来业绩为负 {excluded} 只，剩余 {len(combined)} 只")
 
     # 逐只过滤：持仓黑名单 + 规模
-    min_scale = 0.0 if args.no_scale else args.min_scale
+    min_scale = args.min_scale
     if not args.no_filter:
         before = len(combined)
         combined = filter_by_holdings_and_scale(
@@ -756,7 +784,7 @@ def main() -> None:
             if before != after:
                 print(f"\n规模过滤: {before} → {after} 只（排除 {before - after} 只）")
 
-    display_and_save(combined, keywords, args.sort, args.top, theme_name)
+    display_and_save(combined, keywords, "近1年", 50, theme_name)
 
 
 if __name__ == "__main__":
