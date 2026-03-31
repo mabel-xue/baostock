@@ -166,12 +166,6 @@ def _fetch_fund_basic(fund_code: str) -> tuple[float | None, str | None]:
     return scale, inception
 
 
-def _fetch_fund_scale(fund_code: str) -> float | None:
-    """查询单只基金最新规模（亿元），兼容旧调用。"""
-    scale, _ = _fetch_fund_basic(fund_code)
-    return scale
-
-
 MIN_FUND_SCALE = 1.0  # 最小基金规模（亿元），低于此值的基金将被排除
 
 
@@ -179,7 +173,6 @@ def filter_by_holdings_and_scale(
     df: pd.DataFrame,
     blacklist: dict[str, str],
     min_scale: float = MIN_FUND_SCALE,
-    year: str | None = None,
 ) -> pd.DataFrame:
     """
     逐只查询基金，同时做两项过滤：
@@ -196,8 +189,7 @@ def filter_by_holdings_and_scale(
         print("  过滤跳过：无基金代码列")
         return df
 
-    if year is None:
-        year = str(datetime.now().year - 1)
+    year = str(datetime.now().year - 1)
 
     bl_codes = set(blacklist.keys()) if blacklist else set()
     if bl_codes:
@@ -615,15 +607,14 @@ def dedup_fund_shares(df: pd.DataFrame) -> pd.DataFrame:
 def display_and_save(
     df: pd.DataFrame,
     keywords: list[str],
-    sort_col: str | None,
-    top_n: int,
     theme_name: str,
 ) -> None:
     if df.empty:
         print("\n未找到匹配的基金。")
         return
 
-    if sort_col and sort_col in df.columns:
+    sort_col = "近1年"
+    if sort_col in df.columns:
         df[sort_col] = pd.to_numeric(df[sort_col], errors="coerce")
         df = df.sort_values(sort_col, ascending=False, na_position="last")
 
@@ -638,11 +629,11 @@ def display_and_save(
 
     print(f"\n{'=' * 100}")
     print(f"【{theme_name}主题基金查询结果】关键词: {', '.join(keywords)}")
-    print(f"  共 {len(df)} 只，展示前 {min(top_n, len(df))} 只" +
-          (f"（按 {sort_col} 降序）" if sort_col and sort_col in df.columns else ""))
+    suffix = f"（按 {sort_col} 降序）" if sort_col in df.columns else ""
+    print(f"  共 {len(df)} 只{suffix}")
     print(f"{'=' * 100}")
 
-    show = df[display_cols].head(top_n)
+    show = df[display_cols]
     pd.set_option("display.max_colwidth", 30)
     pd.set_option("display.width", 200)
     print(show.to_string(index=False))
@@ -784,7 +775,7 @@ def main() -> None:
             if before != after:
                 print(f"\n规模过滤: {before} → {after} 只（排除 {before - after} 只）")
 
-    display_and_save(combined, keywords, "近1年", 50, theme_name)
+    display_and_save(combined, keywords, theme_name)
 
 
 if __name__ == "__main__":
