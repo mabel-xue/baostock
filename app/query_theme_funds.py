@@ -425,38 +425,74 @@ def query_active_funds(keywords: list[str]) -> pd.DataFrame:
 
 
 def try_enrich_with_ranking(df: pd.DataFrame) -> pd.DataFrame:
-    """尝试用开放式基金排行数据补充收益率字段。"""
+    """尝试用开放式基金排行 + 场内ETF排行数据补充收益率字段。"""
     if df.empty:
         return df
     code_col = "基金代码" if "基金代码" in df.columns else None
     if code_col is None:
         return df
 
+    perf_fields = ["单位净值", "日期", "日增长率", "近1周", "近1月", "近3月", "近6月", "近1年", "近2年", "近3年", "今年来", "成立来"]
+
+    # 1) 开放式基金排行（覆盖场外基金）
     print("正在查询开放式基金排行以补充收益率 (fund_open_fund_rank_em) ...")
+    rank_df = None
     try:
         rank_df = ak.fund_open_fund_rank_em(symbol="全部")
     except Exception as e:
         print(f"  排行数据查询失败（不影响主结果）: {e}")
-        return df
 
-    if rank_df is None or rank_df.empty:
-        return df
+    if rank_df is not None and not rank_df.empty and "基金代码" in rank_df.columns:
+        merge_cols = ["基金代码"]
+        for c in perf_fields:
+            if c in rank_df.columns and c not in df.columns:
+                merge_cols.append(c)
+        if len(merge_cols) > 1:
+            df = df.merge(rank_df[merge_cols], on="基金代码", how="left")
+            print(f"  开放式排行匹配 {df[merge_cols[1]].notna().sum()} / {len(df)} 只")
 
-    rank_code_col = "基金代码" if "基金代码" in rank_df.columns else None
-    if rank_code_col is None:
-        return df
+    # 2) 场内ETF排行（覆盖未被开放式排行覆盖的ETF）
+    has_perf = [c for c in perf_fields if c in df.columns]
+    if has_perf:
+        missing_mask = df[has_perf].isna().all(axis=1)
+    else:
+        missing_mask = pd.Series(True, index=df.index)
+    missing_count = missing_mask.sum()
 
-    merge_cols = [rank_code_col]
-    for c in ["单位净值", "日期", "日增长率", "近1周", "近1月", "近3月", "近6月", "近1年", "近2年", "近3年", "今年来", "成立来"]:
-        if c in rank_df.columns and c not in df.columns:
-            merge_cols.append(c)
+    if missing_count > 0:
+        print(f"  尚有 {missing_count} 只无业绩数据，尝试场内ETF排行 (fund_exchange_rank_em) ...")
+        try:
+            etf_rank = ak.fund_exchange_rank_em()
+        except Exception as e:
+            print(f"  ETF排行查询失败（不影响主结果）: {e}")
+            etf_rank = None
 
-    if len(merge_cols) <= 1:
-        return df
+        if etf_rank is not None and not etf_rank.empty and "基金代码" in etf_rank.columns:
+            etf_cols = ["基金代码"]
+            for c in perf_fields:
+                if c in etf_rank.columns:
+                    etf_cols.append(c)
+            if len(etf_cols) > 1:
+                etf_sub = etf_rank[etf_cols].copy()
+                fill_cols = [c for c in etf_cols if c != "基金代码"]
+                etf_sub = etf_sub.rename(columns={c: f"_etf_{c}" for c in fill_cols})
 
-    enriched = df.merge(rank_df[merge_cols], left_on=code_col, right_on=rank_code_col, how="left")
-    print(f"  成功匹配排行数据 {enriched[merge_cols[1]].notna().sum()} / {len(enriched)} 只")
-    return enriched
+                df = df.merge(etf_sub, on="基金代码", how="left")
+                for c in fill_cols:
+                    etf_c = f"_etf_{c}"
+                    if c in df.columns:
+                        df[c] = df[c].fillna(df[etf_c])
+                    else:
+                        df[c] = df[etf_c]
+                    df.drop(columns=[etf_c], inplace=True)
+
+                filled = 0
+                if has_perf or fill_cols:
+                    check_col = has_perf[0] if has_perf else fill_cols[0]
+                    filled = missing_count - df.loc[missing_mask, check_col].isna().sum()
+                print(f"  ETF排行补充 {filled} 只")
+
+    return df
 
 
 # ── 去重同名 C/D/E/Y 份额 ──
