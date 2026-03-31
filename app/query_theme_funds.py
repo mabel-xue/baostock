@@ -247,14 +247,14 @@ def filter_by_holdings_and_scale(
             top_codes = holdings[h_code_col].head(10).tolist()
             holdings_map[fc] = "、".join(str(c) for c in top_codes if pd.notna(c))
 
-        # 持仓黑名单检查
+        # 持仓黑名单检查：持有超过1只黑名单股票则排除
         if bl_codes:
             held_codes = {_normalize_stock_code(c) for c in holdings[h_code_col]}
             hit = held_codes & bl_codes
-            if hit:
+            if len(hit) > 1:
                 exclude_codes.add(fc)
                 hit_names = [f"{blacklist[c]}" for c in hit]
-                exclude_holding_details.append(f"  ✗ {fund_name}({fc}) 持有: {', '.join(hit_names)}")
+                exclude_holding_details.append(f"  ✗ {fund_name}({fc}) 持有{len(hit)}只黑名单: {', '.join(hit_names)}")
 
         checked += 1
 
@@ -688,6 +688,19 @@ def main() -> None:
     # 去重同名 C/D/E/Y 份额，只保留 A 份额
     combined = dedup_fund_shares(combined)
 
+    # 统一数值列（提前转换，供业绩过滤使用）
+    for col in ["近1周", "近1月", "近3月", "近6月", "近1年", "近2年", "近3年", "今年来", "成立来", "日增长率"]:
+        if col in combined.columns:
+            combined[col] = pd.to_numeric(combined[col], errors="coerce")
+
+    # 排除成立来业绩为负的基金（在逐只查询前做，减少请求量）
+    if "成立来" in combined.columns:
+        before = len(combined)
+        combined = combined[~(combined["成立来"] < 0)].copy()
+        excluded = before - len(combined)
+        if excluded:
+            print(f"\n排除成立来业绩为负 {excluded} 只，剩余 {len(combined)} 只")
+
     # 逐只过滤：持仓黑名单 + 规模
     min_scale = 0.0 if args.no_scale else args.min_scale
     if not args.no_filter:
@@ -706,11 +719,6 @@ def main() -> None:
             after = len(combined)
             if before != after:
                 print(f"\n规模过滤: {before} → {after} 只（排除 {before - after} 只）")
-
-    # 统一数值列，便于排序
-    for col in ["近1周", "近1月", "近3月", "近6月", "近1年", "近2年", "近3年", "今年来", "成立来", "日增长率"]:
-        if col in combined.columns:
-            combined[col] = pd.to_numeric(combined[col], errors="coerce")
 
     display_and_save(combined, keywords, args.sort, args.top, theme_name)
 
