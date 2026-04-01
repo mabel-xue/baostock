@@ -6,10 +6,11 @@ B股分化预测分析 —— 79只B股三梯队分类（2026年—2028年）
   第二梯队（约30–35只）：优质纯B/有H股基础 → B转H或被A股吸并
   第三梯队（约15–20只）：绩差、无母公司、流动性枯竭 → 主动或强制退市
 
-数据源（AkShare / 新浪财经 / 交易所）：
+数据源（AkShare / 东方财富 / 新浪财经 / 交易所）：
 - stock_zh_b_spot()：B股实时行情（新浪，代码、名称、价格、成交量等）
 - stock_info_a_code_name()：A股代码名录（用于匹配同公司A股）
-- stock_financial_abstract()：个股财务摘要（EPS、每股净资产、ROE等，按需逐只获取）
+- stock_financial_analysis_indicator_em()：个股主要财务指标（东方财富，优先；新浪摘要被封时仍可拉取）
+- stock_financial_abstract()：新浪财务摘要（回退；参数须为 6 位数字，因 akshare 内部会拼 sh{code}）
 
 用法（在项目根目录）：
   python app/query_b_share_analysis.py                 # 完整分析（含财务数据）
@@ -80,6 +81,25 @@ def _retry(fn, label: str, retries: int = MAX_RETRIES):
     return None
 
 
+def _retry_nonempty_df(fn, label: str, retries: int = 2):
+    """请求返回 DataFrame：非空才视为成功（适配财务接口）。"""
+    for attempt in range(1, retries + 1):
+        try:
+            d = fn()
+            if d is not None and not getattr(d, "empty", True):
+                return d
+        except Exception as e:
+            print(f"  {label}: 第{attempt}次失败 — {str(e)[:100]}")
+        if attempt < retries:
+            time.sleep(RETRY_DELAY * attempt)
+    return None
+
+
+def _raw_code(symbol: str) -> str:
+    """sh900901 → 900901, sz200002 → 200002"""
+    return re.sub(r"^[a-z]{2}", "", symbol.strip())
+
+
 def fetch_b_shares() -> pd.DataFrame:
     """获取B股实时行情（新浪财经）"""
     print("正在获取B股实时行情 (stock_zh_b_spot) ...")
@@ -109,15 +129,19 @@ def _parse_financial_df(df: pd.DataFrame) -> dict | None:
     if df is None or df.empty or len(df.columns) < 3:
         return None
 
-    latest_col = df.columns[2]
-
     def _get(section: str, metric: str) -> float | None:
-        mask = (df.iloc[:, 0] == section) & (df.iloc[:, 1].str.contains(metric, na=False))
-        rows = df.loc[mask, latest_col]
-        if rows.empty:
+        col0 = df.iloc[:, 0].astype(str).str.strip()
+        col1 = df.iloc[:, 1].astype(str)
+        mask = (col0 == section) & (col1.str.contains(metric, na=False))
+        if not mask.any():
             return None
-        val = pd.to_numeric(rows.iloc[0], errors="coerce")
-        return None if pd.isna(val) else float(val)
+        report_cols = list(df.columns[2:])
+        row = df.loc[mask, report_cols].iloc[0]
+        for col in report_cols:
+            val = pd.to_numeric(row.get(col), errors="coerce")
+            if pd.notna(val):
+                return float(val)
+        return None
 
     return {
         "eps": _get("常用指标", "基本每股收益"),
@@ -129,23 +153,73 @@ def _parse_financial_df(df: pd.DataFrame) -> dict | None:
     }
 
 
+def _em_secucodes_for_b(raw6: str) -> list[str]:
+    """B 股 6 位代码 → 东方财富 SECUCODE（必要时附加 A 股代码作备选）。"""
+    raw6 = raw6.strip()
+    out: list[str] = []
+    if raw6.startswith("9"):
+        out.append(f"{raw6}.SH")
+    elif raw6.startswith(("200", "201")):
+        out.append(f"{raw6}.SZ")
+        if raw6.startswith("200"):
+            out.append(f"000{raw6[3:]}.SZ")
+    else:
+        out.append(f"{raw6}.SZ")
+    return list(dict.fromkeys(out))
+
+
+def _parse_financial_em_df(df: pd.DataFrame) -> dict | None:
+    """东方财富主要财务指标 → 与 _parse_financial_df 相同键，便于统一 PE/PB 计算。"""
+    need = ["REPORT_DATE", "EPSJB", "BPS", "ROEJQ", "XSMLL", "ZCFZL", "PARENTNETPROFIT"]
+    if df is None or df.empty or not all(c in df.columns for c in need):
+        return None
+    row = df.sort_values("REPORT_DATE", ascending=False).iloc[0]
+
+    def _f(x) -> float | None:
+        v = pd.to_numeric(x, errors="coerce")
+        return None if pd.isna(v) else float(v)
+
+    return {
+        "eps": _f(row["EPSJB"]),
+        "bvps": _f(row["BPS"]),
+        "roe": _f(row["ROEJQ"]),
+        "net_profit": _f(row["PARENTNETPROFIT"]),
+        "debt_ratio": _f(row["ZCFZL"]),
+        "gross_margin": _f(row["XSMLL"]),
+    }
+
+
 def fetch_financial_for_stock(symbol: str) -> dict | None:
     """
-    获取单只股票的核心财务指标（新浪 stock_financial_abstract）。
+    获取单只股票的核心财务指标。
     symbol 格式: sh900901 / sz200002
-    深圳B股(200xxx)的财务数据在新浪系统中挂在对应A股代码(000xxx)下，
-    因此优先用B股代码查，查不到则自动转A股代码重试。
-    """
-    candidates = [symbol]
-    raw = re.sub(r"^[a-z]{2}", "", symbol.strip())
-    if raw.startswith("200"):
-        a_code = "000" + raw[3:]
-        candidates.append(f"sz{a_code}")
 
-    for sym in candidates:
-        try:
-            df = ak.stock_financial_abstract(symbol=sym)
-        except Exception:
+    优先东方财富 stock_financial_analysis_indicator_em（新浪 OpenAPI 常因 456/反爬返回 HTML，导致 JSON 解析失败）。
+    回退新浪 stock_financial_abstract：须传 6 位数字，因 akshare 内部固定拼接 paperCode=sh{symbol}。
+    深圳 B(200xxx) 新浪侧可再试对应 A 股 000xxx。
+    """
+    raw = _raw_code(symbol)
+
+    for sec in _em_secucodes_for_b(raw):
+        df = _retry_nonempty_df(
+            lambda s=sec: ak.stock_financial_analysis_indicator_em(symbol=s, indicator="按报告期"),
+            f"财务EM({sec})",
+            retries=2,
+        )
+        parsed = _parse_financial_em_df(df) if df is not None else None
+        if parsed and any(v is not None for v in parsed.values()):
+            return parsed
+
+    sina_candidates = [raw]
+    if raw.startswith("200"):
+        sina_candidates.append("000" + raw[3:])
+    for sym in dict.fromkeys(sina_candidates):
+        df = _retry_nonempty_df(
+            lambda s=sym: ak.stock_financial_abstract(symbol=s),
+            f"财务新浪({sym})",
+            retries=2,
+        )
+        if df is None:
             continue
         result = _parse_financial_df(df)
         if result and any(v is not None for v in result.values()):
@@ -155,7 +229,7 @@ def fetch_financial_for_stock(symbol: str) -> dict | None:
 
 def enrich_financials(b_df: pd.DataFrame) -> pd.DataFrame:
     """逐只获取财务数据，补充 PE/PB/ROE 等字段"""
-    print("\n正在逐只获取财务数据 (stock_financial_abstract) ...")
+    print("\n正在逐只获取财务数据 (东方财富主要指标，失败回退新浪摘要) ...")
     total = len(b_df)
 
     eps_list, bvps_list, roe_list = [], [], []
@@ -199,6 +273,11 @@ def enrich_financials(b_df: pd.DataFrame) -> pd.DataFrame:
 
     ok_count = sum(1 for e in eps_list if e is not None)
     print(f"  ✓ 成功获取 {ok_count}/{total} 只财务数据")
+    if ok_count == 0:
+        print(
+            "  ⚠ 全部为失败：常见原因是新浪财经 OpenAPI 对当前 IP 返回 456/拒绝访问（非 JSON），"
+            "此前代码会静默跳过。现已优先使用东方财富接口；若仍全失败，请检查网络或稍后再试。"
+        )
     return b_df
 
 
@@ -230,11 +309,6 @@ def _strip_st(name: str) -> str:
 
 def _core(name: str) -> str:
     return _strip_st(_strip_b(_strip_a(name)))
-
-
-def _raw_code(symbol: str) -> str:
-    """sh900901 → 900901, sz200002 → 200002"""
-    return re.sub(r"^[a-z]{2}", "", symbol.strip())
 
 
 def match_a_shares(b_df: pd.DataFrame, a_df: pd.DataFrame) -> dict:
@@ -589,11 +663,7 @@ def main() -> None:
     print_summary(b_df)
     for t in [1, 2, 3]:
         print_tier_detail(b_df, t)
-
-    if not args.no_export:
-        path = export_results(b_df)
-        print(f"\n  详细数据请查看: {path}")
-
+        
     print(f"\n{'=' * 90}")
     print("分析完成！提示: 分类结果基于实时行情 + 最新财报的量化评分，仅供参考。")
 
