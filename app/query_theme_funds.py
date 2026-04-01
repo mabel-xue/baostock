@@ -269,10 +269,10 @@ def filter_by_holdings_and_scale(
             top_codes = holdings[h_code_col].head(10).tolist()
             holdings_map[fc] = "、".join(str(c) for c in top_codes if pd.notna(c))
 
-        # 持仓黑名单检查：持有超过1只黑名单股票则排除
+        # 持仓黑名单检查：仅看前十五重仓，持有超过1只黑名单股票则排除
         if bl_codes:
-            held_codes = {_normalize_stock_code(c) for c in holdings[h_code_col]}
-            hit = held_codes & bl_codes
+            top10_codes = {_normalize_stock_code(c) for c in holdings[h_code_col].head(15)}
+            hit = top10_codes & bl_codes
             if len(hit) > 1:
                 exclude_codes.add(fc)
                 hit_names = [f"{blacklist[c]}" for c in hit]
@@ -627,31 +627,11 @@ def display_and_save(
     if not display_cols:
         display_cols = list(df.columns)
 
-    print(f"\n{'=' * 100}")
-    print(f"【{theme_name}主题基金查询结果】关键词: {', '.join(keywords)}")
-    suffix = f"（按 {sort_col} 降序）" if sort_col in df.columns else ""
-    print(f"  共 {len(df)} 只{suffix}")
-    print(f"{'=' * 100}")
-
-    show = df[display_cols]
-    pd.set_option("display.max_colwidth", 30)
-    pd.set_option("display.width", 200)
-    print(show.to_string(index=False))
-
-    # 按来源分类统计
-    if "来源" in df.columns:
-        print(f"\n【来源分布】")
-        print(df["来源"].value_counts().to_string())
-
-    if "基金类型" in df.columns:
-        print(f"\n【类型分布】")
-        print(df["基金类型"].value_counts().to_string())
-
     os.makedirs("output", exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = f"output/theme_funds_{theme_name}_{ts}.csv"
     df[display_cols].to_csv(path, index=False, encoding="utf-8-sig")
-    print(f"\n完整数据已保存: {path}")
+    print(f"\n共 {len(df)} 只基金，已保存: {path}")
 
 
 # ── 主流程 ──
