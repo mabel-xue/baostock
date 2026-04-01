@@ -104,16 +104,8 @@ def fetch_a_code_name() -> pd.DataFrame:
     return df
 
 
-def fetch_financial_for_stock(symbol: str) -> dict | None:
-    """
-    获取单只股票的核心财务指标（新浪 stock_financial_abstract）。
-    symbol 格式: sh900901 / sz200002
-    返回 dict: {eps, bvps, roe, net_profit, debt_ratio, gross_margin}
-    """
-    try:
-        df = ak.stock_financial_abstract(symbol=symbol)
-    except Exception:
-        return None
+def _parse_financial_df(df: pd.DataFrame) -> dict | None:
+    """从 stock_financial_abstract 返回的 DataFrame 中提取核心指标"""
     if df is None or df.empty or len(df.columns) < 3:
         return None
 
@@ -135,6 +127,30 @@ def fetch_financial_for_stock(symbol: str) -> dict | None:
         "debt_ratio": _get("常用指标", "资产负债率"),
         "gross_margin": _get("常用指标", "毛利率"),
     }
+
+
+def fetch_financial_for_stock(symbol: str) -> dict | None:
+    """
+    获取单只股票的核心财务指标（新浪 stock_financial_abstract）。
+    symbol 格式: sh900901 / sz200002
+    深圳B股(200xxx)的财务数据在新浪系统中挂在对应A股代码(000xxx)下，
+    因此优先用B股代码查，查不到则自动转A股代码重试。
+    """
+    candidates = [symbol]
+    raw = re.sub(r"^[a-z]{2}", "", symbol.strip())
+    if raw.startswith("200"):
+        a_code = "000" + raw[3:]
+        candidates.append(f"sz{a_code}")
+
+    for sym in candidates:
+        try:
+            df = ak.stock_financial_abstract(symbol=sym)
+        except Exception:
+            continue
+        result = _parse_financial_df(df)
+        if result and any(v is not None for v in result.values()):
+            return result
+    return None
 
 
 def enrich_financials(b_df: pd.DataFrame) -> pd.DataFrame:
@@ -474,26 +490,12 @@ def print_tier_detail(df: pd.DataFrame, tier: int) -> None:
         return
 
     meta = TIER_META[tier]
-    print(f"\n{'─' * 90}")
-    print(f"  {meta['label']} ({len(tier_df)} 只): {meta['desc']}")
-    print(f"{'─' * 90}")
-
     tier_df = tier_df.sort_values("综合评分", ascending=False)
-    tier_df["代码6"] = tier_df["代码"].apply(_raw_code)
-    if "成交额" in tier_df.columns:
-        tier_df["成交额(万)"] = (pd.to_numeric(tier_df["成交额"], errors="coerce") / 1e4).round(1)
 
-    show_cols = ["代码6", "名称"]
-    if "对应A股" in tier_df.columns:
-        show_cols.append("对应A股")
-    for c in ["最新价", "涨跌幅", "PE(动)", "PB", "ROE(%)", "成交额(万)", "综合评分", "分类依据"]:
-        if c in tier_df.columns:
-            show_cols.append(c)
-
-    pd.set_option("display.max_colwidth", 35)
-    pd.set_option("display.width", 220)
-    pd.set_option("display.max_rows", 100)
-    print(tier_df[show_cols].to_string(index=False))
+    print(f"\n  {meta['label']} ({len(tier_df)} 只):")
+    names = [f"{_raw_code(r['代码'])} {r['名称']}" for _, r in tier_df.iterrows()]
+    for i in range(0, len(names), 5):
+        print(f"    {'、'.join(names[i:i+5])}")
 
 
 def export_results(df: pd.DataFrame) -> str:
@@ -540,11 +542,8 @@ def main() -> None:
 示例:
   python app/query_b_share_analysis.py
   python app/query_b_share_analysis.py --fast
-  python app/query_b_share_analysis.py --tier 1
         """,
     )
-    parser.add_argument("--tier", type=int, choices=[1, 2, 3], default=None,
-                        help="只显示指定梯队（1/2/3）")
     parser.add_argument("--fast", action="store_true",
                         help="快速模式：跳过逐只财务查询，仅用行情数据分类")
     parser.add_argument("--no-export", action="store_true",
@@ -588,19 +587,15 @@ def main() -> None:
 
     # ── 5. 输出 ──
     print_summary(b_df)
-    if args.tier:
-        print_tier_detail(b_df, args.tier)
-    else:
-        for t in [1, 2, 3]:
-            print_tier_detail(b_df, t)
+    for t in [1, 2, 3]:
+        print_tier_detail(b_df, t)
 
     if not args.no_export:
-        export_results(b_df)
+        path = export_results(b_df)
+        print(f"\n  详细数据请查看: {path}")
 
     print(f"\n{'=' * 90}")
-    print("分析完成！")
-    print("  提示: 分类结果基于实时行情 + 最新财报的量化评分，仅供参考。")
-    print("  实际B股改革进程受政策、公司意愿等多因素影响。")
+    print("分析完成！提示: 分类结果基于实时行情 + 最新财报的量化评分，仅供参考。")
 
 
 if __name__ == "__main__":
