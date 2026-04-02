@@ -285,16 +285,81 @@ def _strip_st(name: str) -> str:
 
 
 def _core(name: str) -> str:
-    return _strip_st(_strip_b(_strip_a(name)))
+    c = _strip_st(_strip_b(_strip_a(name)))
+    return re.sub(r"\s+", "", c)
+
+
+def _fetch_exchange_ab_map() -> dict[str, dict]:
+    """
+    从交易所官方接口获取 B股→A股 代码映射。
+
+    深交所: stock_info_sz_name_code("AB股列表") 直接提供 A股代码↔B股代码
+    上交所: stock_info_sh_name_code("主板B股") 的公司简称 与 "主板A股" 的公司简称匹配
+    """
+    b2a: dict[str, dict] = {}
+
+    # ── 深交所 AB 股列表 (直接映射) ──
+    try:
+        print("  获取深交所AB股对应表 ...")
+        sz_ab = throttle.retry(lambda: ak.stock_info_sz_name_code(symbol="AB股列表"), "深交所AB股")
+        if sz_ab is not None and not sz_ab.empty:
+            for _, row in sz_ab.iterrows():
+                a_code = str(row.get("A股代码", "")).strip()
+                b_code = str(row.get("B股代码", "")).strip()
+                a_name = str(row.get("A股简称", "")).strip()
+                if a_code and b_code:
+                    b2a[b_code] = {"a_code": a_code, "a_name": a_name, "method": "深交所官方"}
+            print(f"    ✓ 深交所 {len(b2a)} 对 AB 股映射")
+    except Exception as e:
+        print(f"    深交所AB股接口异常: {str(e)[:80]}")
+
+    # ── 上交所 公司简称匹配 ──
+    try:
+        print("  获取上交所AB股列表 ...")
+        sh_b = throttle.retry(lambda: ak.stock_info_sh_name_code(symbol="主板B股"), "上交所B股")
+        sh_a = throttle.retry(lambda: ak.stock_info_sh_name_code(symbol="主板A股"), "上交所A股")
+        if sh_b is not None and not sh_b.empty and sh_a is not None and not sh_a.empty:
+            a_by_company: dict[str, dict] = {}
+            for _, row in sh_a.iterrows():
+                company = str(row.get("公司简称", "")).strip()
+                a_code = str(row.get("证券代码", "")).strip()
+                a_name = str(row.get("证券简称", "")).strip()
+                if company:
+                    a_by_company[company] = {"a_code": a_code, "a_name": a_name}
+
+            sh_count = 0
+            for _, row in sh_b.iterrows():
+                b_code = str(row.get("证券代码", "")).strip()
+                company = str(row.get("公司简称", "")).strip()
+                if company in a_by_company and b_code not in b2a:
+                    info = a_by_company[company]
+                    b2a[b_code] = {
+                        "a_code": info["a_code"],
+                        "a_name": info["a_name"],
+                        "method": "上交所官方",
+                    }
+                    sh_count += 1
+            print(f"    ✓ 上交所 {sh_count} 对 AB 股映射")
+    except Exception as e:
+        print(f"    上交所AB股接口异常: {str(e)[:80]}")
+
+    return b2a
 
 
 def match_a_shares(b_df: pd.DataFrame, a_df: pd.DataFrame) -> dict:
     """
     匹配B股与同公司A股。
-    策略: ① 深圳 200xxx→000xxx 代码映射  ② 名称精确匹配  ③ 模糊子串匹配
+
+    优先级:
+      ① 交易所官方接口 (深交所AB股列表 / 上交所公司简称匹配)
+      ② A股名录名称匹配 (回退)
     """
     print("\n正在匹配B股与A股对应关系 ...")
 
+    # ── ① 交易所官方映射 ──
+    exchange_map = _fetch_exchange_ab_map()
+
+    # ── ② 构建 A 股名称索引 (用于回退) ──
     a_by_code: dict[str, str] = {}
     a_by_core: dict[str, dict] = {}
 
@@ -307,10 +372,6 @@ def match_a_shares(b_df: pd.DataFrame, a_df: pd.DataFrame) -> dict:
             if core and len(core) >= 2:
                 a_by_core[core] = {"code": code, "name": name}
 
-    has_names = bool(a_by_core)
-    if not has_names:
-        print("  A股名录为空，仅使用深圳代码映射")
-
     result: dict[str, dict | None] = {}
     matched_count = 0
 
@@ -320,23 +381,18 @@ def match_a_shares(b_df: pd.DataFrame, a_df: pd.DataFrame) -> dict:
         raw = _raw_code(symbol)
         matched = None
 
-        # ① 深圳代码映射 200xxx → 000xxx
-        if raw.startswith("200"):
-            potential = "000" + raw[3:]
-            if potential in a_by_code:
-                matched = {"a_code": potential, "a_name": a_by_code[potential], "method": "深圳代码"}
-            elif not has_names:
-                matched = {"a_code": potential, "a_name": f"({potential})", "method": "深圳代码(推断)"}
+        # ① 交易所官方映射
+        if raw in exchange_map:
+            matched = exchange_map[raw]
 
-        # ② 名称精确匹配
-        if matched is None and has_names:
+        # ② 回退: 名称匹配
+        if matched is None and a_by_core:
             core_b = _core(b_name)
             if core_b and core_b in a_by_core:
                 info = a_by_core[core_b]
                 matched = {"a_code": info["code"], "a_name": info["name"], "method": "名称匹配"}
 
-            # ③ 模糊子串匹配 (≥3字符)
-            if matched is None and core_b and len(core_b) >= 3:
+            if matched is None and core_b and len(core_b) >= 2:
                 best, best_len = None, 0
                 for a_core, a_info in a_by_core.items():
                     if len(a_core) < 2:
@@ -346,7 +402,7 @@ def match_a_shares(b_df: pd.DataFrame, a_df: pd.DataFrame) -> dict:
                         if ml > best_len:
                             best_len = ml
                             best = {"a_code": a_info["code"], "a_name": a_info["name"], "method": "模糊匹配"}
-                if best and best_len >= 3:
+                if best and best_len >= 2:
                     matched = best
 
         result[symbol] = matched
@@ -651,7 +707,10 @@ def main() -> None:
     print_summary(b_df)
     for t in [1, 2, 3]:
         print_tier_detail(b_df, t)
-        
+
+    if not args.no_export:
+        export_results(b_df)
+
     print(f"\n{'=' * 90}")
     print("分析完成！提示: 分类结果基于实时行情 + 最新财报的量化评分，仅供参考。")
 
