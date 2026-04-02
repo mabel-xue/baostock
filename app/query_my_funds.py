@@ -28,6 +28,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import requests
 import akshare as ak
 import pandas as pd
+
+from anti_throttle import random_ua
 from datetime import datetime
 
 # 我的基金列表（原持仓 + 自选截图新增；002943 仅保留原条目）
@@ -108,12 +110,7 @@ def query_etf_tracking_index_em(fund_code: str) -> tuple:
     except ImportError:
         return None, None
     url = f"https://fundf10.eastmoney.com/tsdata_{fund_code}.html"
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        ),
-    }
+    headers = {"User-Agent": random_ua()}
     try:
         r = requests.get(url, headers=headers, timeout=20)
         r.encoding = r.apparent_encoding or "utf-8"

@@ -26,7 +26,6 @@ import argparse
 import os
 import re
 import sys
-import time
 import warnings
 from datetime import datetime
 
@@ -36,7 +35,11 @@ import akshare as ak
 import numpy as np
 import pandas as pd
 
+from anti_throttle import throttle
+
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
+
+BLACKLIST = {"三毛B", "大名城B", "汇丽B", "中路B", "深康佳B", "皇庭B", "金煤B"}
 
 TIER_META = {
     1: {
@@ -64,36 +67,6 @@ TIER_META = {
 #  数据获取
 # ═══════════════════════════════════════════════════════════════════
 
-MAX_RETRIES = 3
-RETRY_DELAY = 2
-
-
-def _retry(fn, label: str, retries: int = MAX_RETRIES):
-    for attempt in range(1, retries + 1):
-        try:
-            result = fn()
-            if result is not None:
-                return result
-        except Exception as e:
-            print(f"  {label}: 第{attempt}次失败 — {str(e)[:100]}")
-        if attempt < retries:
-            time.sleep(RETRY_DELAY * attempt)
-    return None
-
-
-def _retry_nonempty_df(fn, label: str, retries: int = 2):
-    """请求返回 DataFrame：非空才视为成功（适配财务接口）。"""
-    for attempt in range(1, retries + 1):
-        try:
-            d = fn()
-            if d is not None and not getattr(d, "empty", True):
-                return d
-        except Exception as e:
-            print(f"  {label}: 第{attempt}次失败 — {str(e)[:100]}")
-        if attempt < retries:
-            time.sleep(RETRY_DELAY * attempt)
-    return None
-
 
 def _raw_code(symbol: str) -> str:
     """sh900901 → 900901, sz200002 → 200002"""
@@ -103,7 +76,7 @@ def _raw_code(symbol: str) -> str:
 def fetch_b_shares() -> pd.DataFrame:
     """获取B股实时行情（新浪财经）"""
     print("正在获取B股实时行情 (stock_zh_b_spot) ...")
-    df = _retry(ak.stock_zh_b_spot, "B股行情")
+    df = throttle.retry(ak.stock_zh_b_spot, "B股行情")
     if df is None or df.empty:
         print("  ✗ 未获取到B股数据")
         return pd.DataFrame()
@@ -114,7 +87,7 @@ def fetch_b_shares() -> pd.DataFrame:
 def fetch_a_code_name() -> pd.DataFrame:
     """获取A股代码名录（轻量接口）"""
     print("正在获取A股名录 (stock_info_a_code_name) ...")
-    df = _retry(ak.stock_info_a_code_name, "A股名录")
+    df = throttle.retry(ak.stock_info_a_code_name, "A股名录")
     if df is None or df.empty:
         print("  ✗ 未获取到A股名录")
         return pd.DataFrame()
@@ -201,7 +174,7 @@ def fetch_financial_for_stock(symbol: str) -> dict | None:
     raw = _raw_code(symbol)
 
     for sec in _em_secucodes_for_b(raw):
-        df = _retry_nonempty_df(
+        df = throttle.retry_df(
             lambda s=sec: ak.stock_financial_analysis_indicator_em(symbol=s, indicator="按报告期"),
             f"财务EM({sec})",
             retries=2,
@@ -214,7 +187,7 @@ def fetch_financial_for_stock(symbol: str) -> dict | None:
     if raw.startswith("200"):
         sina_candidates.append("000" + raw[3:])
     for sym in dict.fromkeys(sina_candidates):
-        df = _retry_nonempty_df(
+        df = throttle.retry_df(
             lambda s=sym: ak.stock_financial_abstract(symbol=s),
             f"财务新浪({sym})",
             retries=2,
@@ -230,6 +203,7 @@ def fetch_financial_for_stock(symbol: str) -> dict | None:
 def enrich_financials(b_df: pd.DataFrame) -> pd.DataFrame:
     """逐只获取财务数据，补充 PE/PB/ROE 等字段"""
     print("\n正在逐只获取财务数据 (东方财富主要指标，失败回退新浪摘要) ...")
+    print(f"  反限制策略: 随机UA轮换 | 自适应限速 | 指数退避重试")
     total = len(b_df)
 
     eps_list, bvps_list, roe_list = [], [], []
@@ -238,7 +212,10 @@ def enrich_financials(b_df: pd.DataFrame) -> pd.DataFrame:
     for i, (_, row) in enumerate(b_df.iterrows(), 1):
         symbol = str(row["代码"])
         if i % 10 == 0 or i == total:
-            print(f"  进度: {i}/{total}")
+            delay_info = f"(间隔~{throttle.current_delay:.1f}s)" if throttle.current_delay > 0.5 else ""
+            print(f"  进度: {i}/{total} {delay_info}")
+
+        throttle.check_cooldown()
 
         fin = fetch_financial_for_stock(symbol)
         if fin:
@@ -255,7 +232,7 @@ def enrich_financials(b_df: pd.DataFrame) -> pd.DataFrame:
             profit_list.append(None)
             debt_list.append(None)
             margin_list.append(None)
-        time.sleep(0.15)
+        throttle.wait()
 
     b_df = b_df.copy()
     b_df["EPS"] = eps_list
@@ -624,11 +601,22 @@ def main() -> None:
                         help="不导出CSV")
     args = parser.parse_args()
 
+    # ── 0. 初始化反限制策略 ──
+    throttle.patch_akshare()
+
     # ── 1. 获取B股行情 ──
     b_df = fetch_b_shares()
     if b_df.empty:
         print("无法获取B股数据，退出。")
         return
+
+    if BLACKLIST:
+        bl_cores = {_strip_b(n) for n in BLACKLIST}
+        before = len(b_df)
+        b_df = b_df[~b_df["名称"].apply(_strip_b).isin(bl_cores)].reset_index(drop=True)
+        skipped = before - len(b_df)
+        if skipped:
+            print(f"  已跳过黑名单股票 {skipped} 只: {', '.join(sorted(BLACKLIST))}")
 
     # ── 2. 获取A股名录并匹配 ──
     try:

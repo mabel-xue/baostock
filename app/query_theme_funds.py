@@ -43,6 +43,8 @@ import akshare as ak
 import pandas as pd
 import requests
 
+from anti_throttle import random_ua
+
 # 预置主题关键词组（可通过 --keywords 覆盖）
 THEME_PRESETS: dict[str, list[str]] = {
     # 排除白酒
@@ -147,10 +149,7 @@ def _fetch_fund_basic(fund_code: str) -> tuple[float | None, str | None]:
     # 方式2: 天天基金概况页
     try:
         url = f"https://fundf10.eastmoney.com/jbgk_{fund_code}.html"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                          "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        }
+        headers = {"User-Agent": random_ua()}
         r = requests.get(url, headers=headers, timeout=10)
         r.encoding = r.apparent_encoding or "utf-8"
         m = re.search(r"资产规模[：:]\s*([\d.]+)\s*亿", r.text)
