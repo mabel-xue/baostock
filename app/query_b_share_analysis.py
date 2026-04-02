@@ -39,7 +39,7 @@ from anti_throttle import throttle
 
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 
-BLACKLIST = {"晨鸣B", "三毛B", "大名城B", "汇丽B", "中路B", "深康佳B", "皇庭B", "金煤B"}
+BLACKLIST = {"古井贡B", "ST晨鸣B", "三毛B", "大名城B", "汇丽B", "中路B", "深康佳B", "皇庭B", "金煤B"}
 
 TIER_META = {
     1: {
@@ -439,7 +439,7 @@ def classify(df: pd.DataFrame, has_financials: bool) -> pd.DataFrame:
       毛利率 (>30% +5)
       资产负债率 (>80% −10)
 
-    分档:  Tier1: 有A股 且 score≥45  |  Tier2: score≥15  |  Tier3: 其余
+    分档:  Tier1: 有A股 且 score≥60  |  Tier2: score≥30  |  Tier3: 其余
     """
     tiers, scores, reasons_all = [], [], []
 
