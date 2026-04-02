@@ -24,7 +24,7 @@ from typing import Literal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.feishu_notify import FEISHU_WEBHOOK_URL, send_feishu
+from app.monitoring.infrastructure.notifications import get_secret, get_webhook, send_feishu_post
 
 logging.basicConfig(
     level=logging.INFO,
@@ -131,7 +131,7 @@ def run_loop(config_path: str, webhook_url: str, interval_sec: int) -> None:
                 if now >= target:
                     logger.info("触发每日日程 %s (%s)", s.id, s.daily_time.strftime("%H:%M"))
                     if webhook_url:
-                        send_feishu(webhook_url, s.title, s.lines)
+                        send_feishu_post(webhook_url, s.title, s.lines, secret=get_secret())
                     daily_fired_on[s.id] = today
 
             elif s.kind == "once" and s.once_at is not None:
@@ -140,7 +140,7 @@ def run_loop(config_path: str, webhook_url: str, interval_sec: int) -> None:
                 if now >= s.once_at:
                     logger.info("触发单次日程 %s (%s)", s.id, s.once_at.isoformat(sep=" "))
                     if webhook_url:
-                        send_feishu(webhook_url, s.title, s.lines)
+                        send_feishu_post(webhook_url, s.title, s.lines, secret=get_secret())
                     once_fired.add(s.id)
 
         if all_once_done(items, once_fired) and not any_daily(items):
@@ -179,7 +179,7 @@ def main() -> None:
         logger.error("配置文件不存在: %s", args.config)
         sys.exit(1)
 
-    webhook = args.webhook or FEISHU_WEBHOOK_URL
+    webhook = (args.webhook or get_webhook() or "").strip()
 
     try:
         run_loop(args.config, webhook, max(5, args.interval))

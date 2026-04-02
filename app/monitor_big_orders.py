@@ -20,7 +20,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from app.feishu_notify import FEISHU_WEBHOOK_URL, send_feishu
+from app.monitoring.infrastructure.notifications import get_secret, get_webhook, send_feishu_post
 import requests as http_requests
 
 logging.basicConfig(
@@ -166,7 +166,7 @@ def generate_daily_report(symbol: str, threshold: int, total_big_buy: float, tot
         print(f"{'=' * 60}")
 
         if webhook_url:
-            send_feishu(
+            send_feishu_post(
                 webhook_url,
                 f"{symbol} {today} 大单日报",
                 [
@@ -175,6 +175,7 @@ def generate_daily_report(symbol: str, threshold: int, total_big_buy: float, tot
                     f"大单卖出: {total_big_sell / 10000:.0f}万",
                     f"净流入: {net:.0f}万",
                 ],
+                secret=get_secret(),
             )
 
         return daily_csv
@@ -283,10 +284,11 @@ def monitor(symbol: str, threshold: int, interval: int, webhook_url: str):
                 buy_sell_info = f"买{buy_count}卖{sell_count}" if buy_count or sell_count else ""
                 lines = [format_big_order(rec) for rec in big]
                 lines.append(f"\n累计大单净流入: {net:.0f}万")
-                send_feishu(
+                send_feishu_post(
                     webhook_url,
                     f"{symbol} {len(big)}笔大单(>={threshold}手) {buy_sell_info} 净流入{net:.0f}万",
                     lines,
+                    secret=get_secret(),
                 )
 
         except KeyboardInterrupt:
@@ -307,7 +309,7 @@ def main():
     parser.add_argument("--webhook", type=str, default="", help="飞书 webhook URL")
     args = parser.parse_args()
 
-    webhook = args.webhook or FEISHU_WEBHOOK_URL
+    webhook = (args.webhook or get_webhook() or "").strip()
     monitor(args.symbol, args.threshold, args.interval, webhook)
 
 
