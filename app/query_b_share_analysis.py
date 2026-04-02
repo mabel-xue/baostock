@@ -39,7 +39,7 @@ from anti_throttle import throttle
 
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 
-BLACKLIST = {"三毛B", "大名城B", "汇丽B", "中路B", "深康佳B", "皇庭B", "金煤B"}
+BLACKLIST = {"晨鸣B", "三毛B", "大名城B", "汇丽B", "中路B", "深康佳B", "皇庭B", "金煤B"}
 
 TIER_META = {
     1: {
