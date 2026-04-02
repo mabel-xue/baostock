@@ -1,0 +1,8 @@
+---
+description: Always use all permissions when running shell commands
+alwaysApply: true
+---
+
+# Shell Command Permissions
+
+When using the Shell tool to execute commands (especially Python scripts, pip install, or any file system operations), always set `required_permissions: ["all"]` to avoid sandbox permission errors.
