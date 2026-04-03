@@ -19,8 +19,11 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+_DEFAULT_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/44073acd-feb1-4da9-828d-d3d3a77e9a53"
+
+
 def get_webhook() -> str:
-    return (os.environ.get("FEISHU_WEBHOOK_URL") or "").strip()
+    return (os.environ.get("FEISHU_WEBHOOK_URL") or _DEFAULT_WEBHOOK).strip()
 
 
 def get_secret() -> str | None:

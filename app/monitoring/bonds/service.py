@@ -13,7 +13,7 @@ from typing import Any
 
 import pandas as pd
 
-from ..infrastructure.notifications import get_secret, get_webhook, send_feishu_text
+from ..infrastructure.notifications import get_secret, get_webhook, send_feishu_post, send_feishu_text
 from .config import CB_MONITOR_RULES
 from .quotes_akshare import fetch_spot_by_code
 
@@ -46,6 +46,51 @@ def _rule_message(rule: dict, row: pd.Series) -> str:
     else:
         cond = f"现价 {price:.3f} > {rule['value']}"
     return f"{head}\n{cond}\n时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
+
+def _fmt_change(price: float, prev_close: float) -> str:
+    diff = price - prev_close
+    pct = diff / prev_close * 100 if prev_close else 0
+    sign = "+" if diff >= 0 else ""
+    return f"{sign}{diff:.3f} ({sign}{pct:.2f}%)"
+
+
+def _handle_notify_open(
+    rid: str,
+    rule: dict,
+    row: pd.Series,
+    state: dict[str, Any],
+    webhook: str | None,
+    secret: str | None,
+    dry_run: bool,
+) -> None:
+    today = datetime.now().strftime("%Y-%m-%d")
+    prev = state.get(rid, {})
+    if prev.get("notified_date") == today:
+        return
+
+    open_price = pd.to_numeric(row.get("open"), errors="coerce")
+    prev_close = pd.to_numeric(row.get("settlement"), errors="coerce")
+    if pd.isna(open_price) or open_price <= 0:
+        return
+
+    note = rule.get("note") or rule["code"]
+    change = _fmt_change(open_price, prev_close) if pd.notna(prev_close) else ""
+    print(f"  [{rid}] 开盘价={open_price:.3f}  {change}")
+
+    title = f"开盘价 {note}({rule['code']})"
+    lines = [f"开盘价: {open_price:.3f}"]
+    if pd.notna(prev_close):
+        lines.append(f"昨收: {prev_close:.3f}")
+        lines.append(f"涨跌: {change}")
+
+    if dry_run or not webhook:
+        print(f"    [DRY] 飞书: {title} | {' | '.join(lines)}")
+    else:
+        send_feishu_post(webhook, title, lines, secret=secret)
+        print(f"    已发送飞书: {title}")
+
+    state[rid] = {"notified_date": today, "open_price": float(open_price)}
 
 
 def project_app_dir() -> Path:
@@ -92,6 +137,11 @@ def run_cb_round(
         row = by_code.loc[code]
         if isinstance(row, pd.DataFrame):
             row = row.iloc[0]
+
+        if rule["kind"] == "notify_open":
+            _handle_notify_open(rid, rule, row, state, webhook, secret, dry_run)
+            continue
+
         ok = _rule_triggered(row, rule)
         prev = state.get(rid, {})
         was_on = bool(prev.get("triggered"))
@@ -129,8 +179,8 @@ def run_cb_forever(
     rules = rules if rules is not None else CB_MONITOR_RULES
 
     if not dry_run and not once and not webhook:
-        print("错误: 未设置 FEISHU_WEBHOOK_URL。可先用 --dry-run 调试。")
-        sys.exit(1)
+        print("警告: 未设置 FEISHU_WEBHOOK_URL，可转债监控将以 dry-run 模式运行。")
+        dry_run = True
 
     print(f"可转债监控 {len(rules)} 条；间隔 {interval}s；状态 {st_path}")
 

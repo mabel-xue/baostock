@@ -39,7 +39,7 @@ def main() -> None:
         return
 
     ap = argparse.ArgumentParser(description="同时：可转债后台轮询 + 场内前台盯盘")
-    ap.add_argument("--cb-interval", type=int, default=1800, help="可转债轮询间隔（秒）")
+    ap.add_argument("--cb-interval", type=int, default=600, help="可转债轮询间隔（秒）")
     args, unknown = ap.parse_known_args(rest)
     sys.argv = [prog] + unknown
 
