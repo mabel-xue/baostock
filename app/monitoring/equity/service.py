@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 
 from ..infrastructure.notifications import get_secret, send_feishu_post
-from .config import INVESTMENT_NOTES, WATCHLIST
+from .config import INVESTMENT_NOTES, OPEN_DROP_ALERTS, WATCHLIST
 from .formatters import fmt_change, fmt_price_line
 from .market_clock import ACTIVE_PHASES, PHASE_CN, get_market_phase
 from .models import PriceTarget, SymbolState
@@ -232,6 +232,31 @@ def monitor(
                                 ],
                                 secret=get_secret(),
                             )
+
+                        drop_threshold = OPEN_DROP_ALERTS.get(sym)
+                        if drop_threshold is not None and st.prev_close > 0:
+                            open_chg_pct = (st.open_price - st.prev_close) / st.prev_close * 100
+                            if open_chg_pct <= drop_threshold:
+                                drop_msg = (
+                                    f"【大跌增持提醒】{label}({sym}) "
+                                    f"开盘跌 {open_chg_pct:.2f}%，达到增持阈值({drop_threshold}%)"
+                                )
+                                logger.info(drop_msg)
+                                memo = memo_map.get(sym, "")
+                                if webhook_url:
+                                    lines_drop = [
+                                        f"开盘价: {st.open_price:.3f}",
+                                        f"昨收: {st.prev_close:.3f}",
+                                        f"跌幅: {open_chg_pct:.2f}%（阈值 {drop_threshold}%）",
+                                    ]
+                                    if memo:
+                                        lines_drop.append(f"操作: {memo}")
+                                    send_feishu_post(
+                                        webhook_url,
+                                        f"大跌增持提醒 {label}({sym})",
+                                        lines_drop,
+                                        secret=get_secret(),
+                                    )
 
                 for t in targets:
                     if t.symbol != sym:

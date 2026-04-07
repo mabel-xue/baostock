@@ -45,7 +45,12 @@ def _rule_message(rule: dict, row: pd.Series) -> str:
         cond = f"现价 {price:.3f} < {rule['value']}"
     else:
         cond = f"现价 {price:.3f} > {rule['value']}"
-    return f"{head}\n{cond}\n时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    memo = rule.get("memo") or ""
+    parts = [head, cond]
+    if memo:
+        parts.append(f"备注: {memo}")
+    parts.append(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    return "\n".join(parts)
 
 
 def _fmt_change(price: float, prev_close: float) -> str:
@@ -83,6 +88,9 @@ def _handle_notify_open(
     if pd.notna(prev_close):
         lines.append(f"昨收: {prev_close:.3f}")
         lines.append(f"涨跌: {change}")
+    memo = rule.get("memo")
+    if memo:
+        lines.append(f"备注: {memo}")
 
     if dry_run or not webhook:
         print(f"    [DRY] 飞书: {title} | {' | '.join(lines)}")
