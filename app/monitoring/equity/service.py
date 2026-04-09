@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 
 from ..infrastructure.notifications import get_secret, send_feishu_post
-from .config import INVESTMENT_NOTES, OPEN_DROP_ALERTS, WATCHLIST
+from .config import WATCHLIST
 from .formatters import fmt_change, fmt_price_line
 from .market_clock import ACTIVE_PHASES, PHASE_CN, get_market_phase
 from .models import PriceTarget, SymbolState
@@ -18,28 +18,44 @@ from .quotes_tencent import fetch_realtime_quotes
 logger = logging.getLogger(__name__)
 
 
-def load_watchlist() -> tuple[list[str], list[PriceTarget], dict[str, str], dict[str, str]]:
+def load_watchlist() -> tuple[
+    list[str],
+    list[PriceTarget],
+    dict[str, str],
+    dict[str, str],
+    dict[str, float],
+]:
     symbols: list[str] = []
     targets: list[PriceTarget] = []
     alias_map: dict[str, str] = {}
     memo_map: dict[str, str] = {}
-    for sym, alias, price_targets, memo in WATCHLIST:
+    open_drop_alerts: dict[str, float] = {}
+    for row in WATCHLIST:
+        if row.get("poll", True) is False:
+            continue
+        sym = row["code"]
+        alias = row["alias"]
+        memo = str(row.get("memo") or "")
         symbols.append(sym)
         alias_map[sym] = alias
         if memo:
             memo_map[sym] = memo
-        notes = INVESTMENT_NOTES.get(sym, [])
-        for price, direction in price_targets:
+        drop_pct = row.get("open_drop_alert_pct")
+        if drop_pct is not None:
+            open_drop_alerts[sym] = float(drop_pct)
+        raw_notes = row.get("investment_notes")
+        notes = list(raw_notes) if raw_notes else []
+        for pt in row.get("price_targets") or []:
             targets.append(
                 PriceTarget(
                     symbol=sym,
-                    target_price=price,
-                    direction=direction,
+                    target_price=float(pt["price"]),
+                    direction=str(pt["direction"]),
                     memo=memo,
                     notes=notes,
                 )
             )
-    return symbols, targets, alias_map, memo_map
+    return symbols, targets, alias_map, memo_map, open_drop_alerts
 
 
 def parse_targets_cli(targets_str: str) -> list[PriceTarget]:
@@ -106,9 +122,11 @@ def monitor(
     *,
     alias_map: dict[str, str] | None = None,
     memo_map: dict[str, str] | None = None,
+    open_drop_alerts: dict[str, float] | None = None,
 ) -> None:
     alias_map = alias_map or {}
     memo_map = memo_map or {}
+    drops = open_drop_alerts if open_drop_alerts is not None else {}
     all_symbols = list(dict.fromkeys(symbols + [t.symbol for t in targets]))
     if not all_symbols:
         logger.error("未指定任何监控标的")
@@ -233,7 +251,7 @@ def monitor(
                                 secret=get_secret(),
                             )
 
-                        drop_threshold = OPEN_DROP_ALERTS.get(sym)
+                        drop_threshold = drops.get(sym)
                         if drop_threshold is not None and st.prev_close > 0:
                             open_chg_pct = (st.open_price - st.prev_close) / st.prev_close * 100
                             if open_chg_pct <= drop_threshold:

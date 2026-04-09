@@ -36,13 +36,14 @@ def main() -> None:
     cli_symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
     cli_targets = parse_targets_cli(args.targets) if args.targets else []
 
+    open_drop_alerts: dict[str, float] | None = None
     if cli_symbols or cli_targets:
         symbols = cli_symbols
         targets = cli_targets
         alias_map: dict[str, str] = {}
         memo_map: dict[str, str] = {}
     else:
-        symbols, targets, alias_map, memo_map = load_watchlist()
+        symbols, targets, alias_map, memo_map, open_drop_alerts = load_watchlist()
 
     if not symbols and not targets:
         print("WATCHLIST 为空且未传入命令行参数，请编辑 monitoring/equity/config.py")
@@ -51,7 +52,15 @@ def main() -> None:
 
     interval = args.interval if args.interval > 0 else POLL_INTERVAL
     webhook = (args.webhook or get_webhook() or "").strip()
-    monitor(symbols, targets, interval, webhook, alias_map=alias_map, memo_map=memo_map)
+    monitor(
+        symbols,
+        targets,
+        interval,
+        webhook,
+        alias_map=alias_map,
+        memo_map=memo_map,
+        open_drop_alerts=open_drop_alerts,
+    )
 
 
 if __name__ == "__main__":
