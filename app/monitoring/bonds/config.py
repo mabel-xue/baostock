@@ -6,13 +6,6 @@ from typing import Any
 
 CB_MONITOR_RULES: list[dict[str, Any]] = [
     {
-        "id": "113575_price_lt_65",
-        "code": "113575",
-        "kind": "price_lt",
-        "value": 65.0,
-        "note": "东时转债",
-    },
-    {
         "id": "128119_price_lt_80",
         "code": "128119",
         "kind": "price_lt",
