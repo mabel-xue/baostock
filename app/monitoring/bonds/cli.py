@@ -26,6 +26,11 @@ def main() -> None:
         help="禁用每轮转债代码增量检测（默认启用）",
     )
     parser.add_argument(
+        "--no-kept-new-notify",
+        action="store_true",
+        help="禁用日终「保留池新进」飞书通知（仍会更新 last_kept_snapshot_codes）",
+    )
+    parser.add_argument(
         "--snapshot-now",
         action="store_true",
         help="立即跑一轮与 query_convertible_bonds 相同的逻辑并落盘（需配合 --force 在非尾盘窗口执行）",
@@ -43,7 +48,15 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.snapshot_now:
-        out = run_daily_snapshot(force=args.force, persist=not args.dry_run)
+        from . import config as cfg
+
+        if args.no_kept_new_notify:
+            cfg.CB_KEPT_NEW_NOTIFY_ENABLED = False
+        out = run_daily_snapshot(
+            force=args.force,
+            persist=not args.dry_run,
+            dry_run=args.dry_run,
+        )
         if out and args.notify_snapshot_feishu:
             notify_daily_snapshot_feishu(out, dry_run=args.dry_run)
         return
@@ -54,6 +67,8 @@ def main() -> None:
         cfg.CB_DAILY_SNAPSHOT_ENABLED = False
     if args.no_new_bond_poll:
         cfg.CB_NEW_BOND_POLL_ENABLED = False
+    if args.no_kept_new_notify:
+        cfg.CB_KEPT_NEW_NOTIFY_ENABLED = False
 
     run_cb_forever(interval=args.interval, once=args.once, dry_run=args.dry_run)
 

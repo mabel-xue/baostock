@@ -1,5 +1,6 @@
 """
-与 app/query_convertible_bonds.py 一致的筛选与落盘；收盘前每日快照；新债代码增量通知。
+与 app/query_convertible_bonds.py 一致的筛选与落盘；收盘前每日快照；
+全市场新代码轮询；保留池（kept）跨日新进通知。
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from anti_throttle import throttle
 from ..equity.market_clock import get_market_phase
 from .quotes_akshare import fetch_bond_zh_hs_cov_spot
 from ..infrastructure.notifications import get_secret, get_webhook, send_feishu_post
-from .config import CB_QUERY_DEFAULTS
+from . import config as bonds_config
 
 
 def _app_dir() -> Path:
@@ -59,6 +60,71 @@ def _code6_series(df: pd.DataFrame) -> pd.Series:
     )
 
 
+def _kept_codes_sorted(kept: pd.DataFrame) -> list[str]:
+    if kept is None or kept.empty or "code" not in kept.columns:
+        return []
+    return sorted(_code6_series(kept).unique().tolist())
+
+
+def _code_name_map_kept(kept: pd.DataFrame) -> dict[str, str]:
+    if kept.empty or "code" not in kept.columns:
+        return {}
+    m: dict[str, str] = {}
+    for _, row in kept.iterrows():
+        c = str(row["code"]).strip().replace(".0", "").zfill(6)
+        m[c] = str(row.get("name", "") or "")
+    return m
+
+
+def _maybe_notify_kept_pool_newcomers(
+    *,
+    kept: pd.DataFrame,
+    kept_codes: list[str],
+    state: dict[str, Any],
+    dry_run: bool,
+) -> list[str]:
+    """
+    相对 state 中上一日保留池 last_kept_snapshot_codes，找出今日新进入保留池的代码；
+    首次无基线时不通知。返回本次新进代码列表。
+    """
+    if not bonds_config.CB_KEPT_NEW_NOTIFY_ENABLED:
+        return []
+
+    prev = list(state.get("last_kept_snapshot_codes") or [])
+    prev_set = set(prev)
+    if not prev_set:
+        print(
+            f"[cb_kept] 首次记录保留池基线 {len(kept_codes)} 只，"
+            "不推送「新进保留池」通知（下一交易日起比对增量）"
+        )
+        return []
+
+    new_codes = sorted(set(kept_codes) - prev_set)
+    if not new_codes:
+        return []
+
+    names = _code_name_map_kept(kept)
+    lines = [
+        f"相对上一日保留池新增 {len(new_codes)} 只（query_convertible_bonds 筛选后 kept）：",
+    ]
+    for c in new_codes[:80]:
+        lines.append(f"  · {c} {names.get(c, '')}".rstrip())
+    if len(new_codes) > 80:
+        lines.append(f"  … 另有 {len(new_codes) - 80} 只未列出")
+
+    webhook = get_webhook() or None
+    secret = get_secret()
+    title = f"可转债保留池新进（{len(new_codes)} 只）"
+    if dry_run or not webhook:
+        print(f"[cb_kept] [DRY] {title}\n" + "\n".join(lines))
+    else:
+        send_feishu_post(webhook, title, lines, secret=secret)
+        print(f"[cb_kept] 已飞书通知: {title}")
+
+    state["last_kept_new_alert"] = datetime.now().isoformat(timespec="seconds")
+    return new_codes
+
+
 def _import_query_module():
     _ensure_app_on_path()
     import query_convertible_bonds as q  # noqa: PLC0415
@@ -73,9 +139,15 @@ def run_pipeline(
     max_price: float | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, str]:
     """返回 (raw, kept, excluded, summary_line)。"""
-    min_price = float(min_price if min_price is not None else CB_QUERY_DEFAULTS["min_price"])
-    max_years = float(max_years if max_years is not None else CB_QUERY_DEFAULTS["max_years"])
-    max_price = float(max_price if max_price is not None else CB_QUERY_DEFAULTS["max_price"])
+    min_price = float(
+        min_price if min_price is not None else bonds_config.CB_QUERY_DEFAULTS["min_price"]
+    )
+    max_years = float(
+        max_years if max_years is not None else bonds_config.CB_QUERY_DEFAULTS["max_years"]
+    )
+    max_price = float(
+        max_price if max_price is not None else bonds_config.CB_QUERY_DEFAULTS["max_price"]
+    )
 
     q = _import_query_module()
     throttle.patch_akshare()
@@ -130,12 +202,14 @@ def run_daily_snapshot(
     *,
     force: bool,
     persist: bool = True,
+    dry_run: bool = False,
     state_path: Path | None = None,
 ) -> dict[str, Any] | None:
     """
-    执行与 query_convertible_bonds 相同逻辑并落盘；更新 known_codes。
+    执行与 query_convertible_bonds 相同逻辑并落盘；更新 known_codes 与 last_kept_snapshot_codes。
     若非 force 且不在尾盘竞价窗口或今日已写过，则返回 None。
     persist=False 时不写 CSV/状态（仅控制台预览，供 CLI 调试）。
+    dry_run=True 时不发保留池新进飞书（仍可在 persist 时更新状态与 CSV）。
     """
     st_path = state_path or universe_state_path()
     state = load_universe_state(st_path)
@@ -148,6 +222,7 @@ def run_daily_snapshot(
             return None
 
     raw, kept, excluded, summary = run_pipeline()
+    kept_codes = _kept_codes_sorted(kept)
     day_compact = datetime.now().strftime("%Y%m%d")
     if persist:
         p_kept, p_excl = save_daily_csvs(kept, excluded, day=day_compact)
@@ -164,6 +239,11 @@ def run_daily_snapshot(
         {"kept": str(p_kept), "excluded": str(p_excl)} if persist and p_kept else {}
     )
     if persist:
+        if bonds_config.CB_KEPT_NEW_NOTIFY_ENABLED:
+            _maybe_notify_kept_pool_newcomers(
+                kept=kept, kept_codes=kept_codes, state=state, dry_run=dry_run
+            )
+        state["last_kept_snapshot_codes"] = kept_codes
         save_universe_state(st_path, state)
 
     print(f"\n[cb_daily] {summary}")

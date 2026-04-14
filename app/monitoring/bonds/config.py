@@ -1,4 +1,10 @@
-"""可转债监控规则（可按需增删）。"""
+"""可转债监控规则（可按需增删）。
+
+可选字段（监控逻辑暂不读取，仅作配置侧记录）:
+  trade_history: 买卖历史，list[dict]。示例元素:
+      {'date': '2026-04-01', 'side': '买', 'note': '110 元附近首批', 'price': 110.0}
+      side 建议用「买」「卖」；可另加数量、交割渠道等任意键。
+"""
 
 from __future__ import annotations
 
@@ -14,6 +20,8 @@ CB_QUERY_DEFAULTS: dict[str, float] = {
 # 轮询内是否执行：① 尾盘竞价窗口写当日 query 快照 ② 轻量比对转债代码是否新增
 CB_DAILY_SNAPSHOT_ENABLED: bool = True
 CB_NEW_BOND_POLL_ENABLED: bool = True
+# 日终快照落盘后：与上一交易日「保留池」对比，有新进入保留池的转债则飞书通知（与全市场新代码轮询不同）
+CB_KEPT_NEW_NOTIFY_ENABLED: bool = True
 
 CB_MONITOR_RULES: list[dict[str, Any]] = [
     {
@@ -34,12 +42,20 @@ CB_MONITOR_RULES: list[dict[str, Any]] = [
         "id": "110081_price_lt_108",
         "code": "110081",
         "kind": "price_lt",
-        "value": 108.0,
+        "value": 102.0,
         "note": "闻泰转债",
         "memo": "现金流充足、子公司安世半导体是全球功率分立器件巨头，"
-                "车规级逻辑器件/ESD保护器件细分市场全球第一或第二，"
-                "客户涵盖几乎所有主流汽车一级供应商。"
-                "目前因海外监管因素计提巨额资产减值准备（临时性）",
+        "车规级逻辑器件/ESD保护器件细分市场全球第一或第二，"
+        "客户涵盖几乎所有主流汽车一级供应商。"
+        "目前因海外监管因素计提巨额资产减值准备（临时性）",
+        "trade_history": [
+            {
+                "date": "2026-04-01",
+                "side": "买",
+                "price": 108.0,
+                "note": "108 元附近首批",
+            }
+        ],
     },
     {
         "id": "110081_notify_open",
@@ -70,7 +86,7 @@ CB_MONITOR_RULES: list[dict[str, Any]] = [
         "value": 90.0,
         "note": "宏图转债",
         "memo": "遥感应用领域第一梯队，但生存空间被压榨，现金流为负，"
-                "关注ST风险，90以下可考虑博资产重组",
+        "关注ST风险，90以下可考虑博资产重组",
     },
     {
         "id": "110092_price_lt_99",
@@ -78,7 +94,6 @@ CB_MONITOR_RULES: list[dict[str, Any]] = [
         "kind": "price_lt",
         "value": 99.0,
         "note": "三房转债",
-        "memo": "现金流压力大，剩余规模24亿，"
-                "但和地方国资有深层链接，有护盘可能",
+        "memo": "现金流压力大，剩余规模24亿，" "但和地方国资有深层链接，有护盘可能",
     },
 ]

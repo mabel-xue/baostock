@@ -197,7 +197,11 @@ def run_cb_forever(
         print(f"\n=== {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} 可转债行情 ===")
         if CB_DAILY_SNAPSHOT_ENABLED:
             try:
-                run_daily_snapshot(force=False, persist=True)
+                run_daily_snapshot(
+                    force=False,
+                    persist=True,
+                    dry_run=dry_run or not webhook,
+                )
             except Exception as e:
                 print(f"日终快照失败: {e}")
         if CB_NEW_BOND_POLL_ENABLED:
