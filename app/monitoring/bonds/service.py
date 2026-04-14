@@ -5,8 +5,8 @@
 from __future__ import annotations
 
 import json
-import sys
 import time
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +21,38 @@ from .quotes_akshare import fetch_spot_by_code
 
 def _code6(s: str) -> str:
     return str(s).strip().replace(".0", "").zfill(6)
+
+
+def _rule_state_keys(rules: list[dict[str, Any]]) -> list[str]:
+    """稳定键：同一 code+kind 一条规则时与阈值、id 无关；重复 (code,kind) 自动加 #1/#2。
+
+    可选字段 state_key：显式指定（仅当需多条同 code+kind 时）。
+    """
+    bases: list[str] = []
+    for r in rules:
+        sk = r.get("state_key")
+        if sk is not None and str(sk).strip():
+            bases.append(str(sk).strip())
+        else:
+            bases.append(f"{_code6(str(r['code']))}:{r['kind']}")
+    counts = Counter(bases)
+    serial: dict[str, int] = {}
+    out: list[str] = []
+    for base in bases:
+        if counts[base] > 1:
+            serial[base] = serial.get(base, 0) + 1
+            out.append(f"{base}#{serial[base]}")
+        else:
+            out.append(base)
+    return out
+
+
+def _rule_log_tag(rule: dict[str, Any], state_key: str) -> str:
+    """日志前缀：优先 note，不依赖 id 与阈值数字。"""
+    note = (rule.get("note") or "").strip()
+    if note:
+        return f"{state_key} {note}"
+    return state_key
 
 
 def _rule_triggered(row: pd.Series, rule: dict) -> bool:
@@ -62,16 +94,17 @@ def _fmt_change(price: float, prev_close: float) -> str:
 
 
 def _handle_notify_open(
-    rid: str,
+    state_key: str,
     rule: dict,
     row: pd.Series,
     state: dict[str, Any],
     webhook: str | None,
     secret: str | None,
     dry_run: bool,
+    log_tag: str,
 ) -> None:
     today = datetime.now().strftime("%Y-%m-%d")
-    prev = state.get(rid, {})
+    prev = state.get(state_key, {})
     if prev.get("notified_date") == today:
         return
 
@@ -82,7 +115,7 @@ def _handle_notify_open(
 
     note = rule.get("note") or rule["code"]
     change = _fmt_change(open_price, prev_close) if pd.notna(prev_close) else ""
-    print(f"  [{rid}] 开盘价={open_price:.3f}  {change}")
+    print(f"  [{log_tag}] 开盘价={open_price:.3f}  {change}")
 
     title = f"开盘价 {note}({rule['code']})"
     lines = [f"开盘价: {open_price:.3f}"]
@@ -99,7 +132,7 @@ def _handle_notify_open(
         send_feishu_post(webhook, title, lines, secret=secret)
         print(f"    已发送飞书: {title}")
 
-    state[rid] = {"notified_date": today, "open_price": float(open_price)}
+    state[state_key] = {"notified_date": today, "open_price": float(open_price)}
 
 
 def project_app_dir() -> Path:
@@ -137,26 +170,32 @@ def run_cb_round(
     df = fetch_spot_by_code()
     by_code = df.set_index("_code6", drop=False)
 
-    for rule in rules:
-        rid = rule["id"]
+    state_keys = _rule_state_keys(rules)
+    for state_key, rule in zip(state_keys, rules):
+        log_tag = _rule_log_tag(rule, state_key)
         code = _code6(rule["code"])
         if code not in by_code.index:
-            print(f"  [{rid}] 未在行情中查到代码 {code}，跳过")
+            print(f"  [{log_tag}] 未在行情中查到代码 {code}，跳过")
             continue
         row = by_code.loc[code]
         if isinstance(row, pd.DataFrame):
             row = row.iloc[0]
 
         if rule["kind"] == "notify_open":
-            _handle_notify_open(rid, rule, row, state, webhook, secret, dry_run)
+            _handle_notify_open(
+                state_key, rule, row, state, webhook, secret, dry_run, log_tag
+            )
             continue
 
         ok = _rule_triggered(row, rule)
-        prev = state.get(rid, {})
+        prev = state.get(state_key, {})
         was_on = bool(prev.get("triggered"))
 
         if ok:
-            print(f"  [{rid}] 满足条件 现价={row['现价']:.3f}")
+            op = "<" if rule["kind"] == "price_lt" else ">"
+            print(
+                f"  [{log_tag}] 满足条件 现价={row['现价']:.3f} ({op} {rule['value']})"
+            )
             if not was_on:
                 msg = _rule_message(rule, row)
                 if dry_run or not webhook:
@@ -164,11 +203,17 @@ def run_cb_round(
                 else:
                     send_feishu_text(webhook, msg, secret=secret)
                     print("    已发送飞书")
-            state[rid] = {"triggered": True, "last_price": float(row["现价"]), "ts": time.time()}
+            state[state_key] = {
+                "triggered": True,
+                "last_price": float(row["现价"]),
+                "ts": time.time(),
+            }
         else:
             if was_on:
-                print(f"  [{rid}] 已恢复（不再满足），下次满足将再次通知")
-            state[rid] = {
+                print(
+                    f"  [{log_tag}] 已恢复（不再满足），下次满足将再次通知"
+                )
+            state[state_key] = {
                 "triggered": False,
                 "last_price": float(row["现价"]) if pd.notna(row["现价"]) else None,
             }

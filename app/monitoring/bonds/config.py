@@ -1,5 +1,9 @@
 """可转债监控规则（可按需增删）。
 
+持久化与控制台日志使用「代码:kind」稳定键（见 bonds/service._rule_state_keys），
+与 value 无关；同 code+kind 多条规则时可设 state_key 区分。
+id 仅作人工备忘，可不写或随意命名，不参与求值。
+
 可选字段（监控逻辑暂不读取，仅作配置侧记录）:
   trade_history: 买卖历史，list[dict]。示例元素:
       {'date': '2026-04-01', 'side': '买', 'note': '110 元附近首批', 'price': 110.0}
@@ -39,7 +43,7 @@ CB_MONITOR_RULES: list[dict[str, Any]] = [
         "note": "长汽转债",
     },
     {
-        "id": "110081_price_lt_108",
+        "id": "110081_price_lt",
         "code": "110081",
         "kind": "price_lt",
         "value": 102.0,
