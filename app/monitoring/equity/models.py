@@ -13,6 +13,8 @@ class PriceTarget:
     memo: str = ""
     notes: list[str] | None = None
     triggered: bool = False
+    # 相对昨收涨跌幅阈值（%），与行情 change_pct 同号；配置了 rate 时按涨跌幅判定，忽略 price
+    rate: float | None = None
 
     def __post_init__(self) -> None:
         if self.notes is None:

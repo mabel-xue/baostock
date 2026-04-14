@@ -4,6 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
+# 与 app/query_convertible_bonds.py 默认参数一致（日终快照与 CLI 复用）
+CB_QUERY_DEFAULTS: dict[str, float] = {
+    "min_price": 90.0,
+    "max_years": 1.0,
+    "max_price": 118.0,
+}
+
+# 轮询内是否执行：① 尾盘竞价窗口写当日 query 快照 ② 轻量比对转债代码是否新增
+CB_DAILY_SNAPSHOT_ENABLED: bool = True
+CB_NEW_BOND_POLL_ENABLED: bool = True
+
 CB_MONITOR_RULES: list[dict[str, Any]] = [
     {
         "id": "128119_price_lt_80",

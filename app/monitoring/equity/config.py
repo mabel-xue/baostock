@@ -40,22 +40,44 @@ def _build_watchlist() -> list[dict[str, Any]]:
         {
             "code": "sh600377",
             "alias": alias("sh600377", "宁沪高速"),
-            "price_targets": [{"price": 11.50, "direction": "买入"}],
-            "memo": "跌到11.5加仓，看股息率逢低分批",
+            "price_targets": [{"price": 11.10, "direction": "买入"}],
+            "memo": "跌到11.1加仓，看股息率逢低分批",
             "investment_notes": [
-                "宁沪高速，高速公路龙头，高股息防御品种",
-                "看股息率逢低分批加仓，跌到11.5目标价加仓",
+                "每天以11.1元低价挂单买宁沪高速(徐411)",
+            ],
+            "buy_reason": [
+                "徐老师131高速路课程推荐：黄金通道，扛周期能力强",
+            ],
+            "reviews": [],
+        },
+        {
+            "code": "sz000089",
+            "alias": alias("sz000089", "深圳机场"),
+            "price_targets": [],
+            "memo": "在6.5-7.5做大波段，逢高减仓",
+            "investment_notes": [
+                "深圳国资委控股，市盈率偏高，股息率低",
+            ],
+            "buy_reason": [
+                "为打新深市股票，徐老师推荐",
+            ],
+            "reviews": [
+                {
+                    "date": "2026-04-11",
+                    "buy_reason_still_valid": False,
+                    "notes": "已有平安银行，持仓理由不再，可在6.5-7.5之间做波段，长期趋势逢高减仓",
+                },
             ],
         },
         # ==============平安信==============
         {
             "code": "sz002100",
             "alias": alias("sz002100", "天康生物"),
-            "price_targets": [{"price": 7.64, "direction": "卖出"}],
-            "memo": ">=7.64减仓1000股，大涨减1000股",
+            "price_targets": [{"rate": 8.0, "direction": "卖出"}],
+            "memo": "较前收涨8%提醒（减仓）",
             "investment_notes": [
                 "天康生物，畜牧养殖个股",
-                ">=7.64 减仓1000股，大涨>=7.81 再减1000股",
+                ">=7.64 减仓1000股，大涨>=7.81 再减1000股 √",
                 "猪周期下行阶段逐步减仓（徐老师329课程）",
             ],
         },
@@ -82,8 +104,14 @@ def _build_watchlist() -> list[dict[str, Any]]:
                 "平安银行",
                 "反转可能还需2-3年（徐329）",
             ],
+            
+            "buy_thesis": [
+                "徐老师看好业绩反转"
+            ]
         },
         # ==============ETF==============
+        { "code": "sh159363", "alias": alias("sh159363", "创业板人工智能ETF"),
+         },
         {
             "code": "sz159632",
             "alias": alias("sz159632", "纳斯达克ETF华安"),
@@ -183,6 +211,8 @@ def _build_watchlist() -> list[dict[str, Any]]:
 #   code: 腾讯行情格式 sh/sz+6 位；场外基金可写 6 位代码并设 poll=False
 #   alias: 简称；未在 query_my_funds 中的标的可写 fallback，在表内的自动对齐 MY_ETFS/MY_FUNDS
 #   price_targets: [{"price": float, "direction": "买入"|"卖出"}, ...]
+#                或 {"rate": float, "direction": ...} — rate 为相对昨收涨跌幅阈值(%)：
+#                卖出：change_pct >= rate 触发；买入：change_pct <= -rate 触发（配置了 rate 时不看 price）
 #   memo: 操作备忘
 #   investment_notes: 投资逻辑条目标（可选）
 #   open_drop_alert_pct: 可选，开盘大跌增持阈值(%)

@@ -46,13 +46,20 @@ def load_watchlist() -> tuple[
         raw_notes = row.get("investment_notes")
         notes = list(raw_notes) if raw_notes else []
         for pt in row.get("price_targets") or []:
+            raw_rate = pt.get("rate")
+            rate = float(raw_rate) if raw_rate is not None else None
+            raw_price = pt.get("price")
+            t_price = float(raw_price) if raw_price is not None else 0.0
+            if rate is None and raw_price is None:
+                continue
             targets.append(
                 PriceTarget(
                     symbol=sym,
-                    target_price=float(pt["price"]),
+                    target_price=t_price,
                     direction=str(pt["direction"]),
                     memo=memo,
                     notes=notes,
+                    rate=rate,
                 )
             )
     return symbols, targets, alias_map, memo_map, open_drop_alerts
@@ -89,7 +96,16 @@ def check_target(target: PriceTarget, state: SymbolState) -> str | None:
     if price <= 0:
         return None
     hit = False
-    if target.direction == "买入" and price <= target.target_price:
+    chg = state.change_pct
+    if target.rate is not None:
+        if state.prev_close <= 0:
+            return None
+        r = float(target.rate)
+        if target.direction == "卖出":
+            hit = chg >= r
+        elif target.direction == "买入":
+            hit = chg <= -r
+    elif target.direction == "买入" and price <= target.target_price:
         hit = True
     elif target.direction == "卖出" and price >= target.target_price:
         hit = True
@@ -99,11 +115,23 @@ def check_target(target: PriceTarget, state: SymbolState) -> str | None:
     label = state.alias or state.name
     action = "买入" if target.direction == "买入" else "卖出"
     verb = "跌至" if action == "买入" else "涨至"
-    lines = [
-        f"【{action}提醒】{label}({state.symbol}) "
-        f"现价 {price:.3f} 已{verb}目标价 {target.target_price:.3f}！",
-        f"  昨收={state.prev_close:.3f}  {fmt_change(price, state.prev_close)}",
-    ]
+    if target.rate is not None:
+        r = float(target.rate)
+        if action == "卖出":
+            cond = f"涨幅 ≥ {r:.2f}%"
+        else:
+            cond = f"跌幅 ≥ {r:.2f}%"
+        lines = [
+            f"【{action}提醒】{label}({state.symbol}) "
+            f"现价 {price:.3f}，较昨收涨跌幅 {chg:+.2f}%，已满足{cond}。",
+            f"  昨收={state.prev_close:.3f}  {fmt_change(price, state.prev_close)}",
+        ]
+    else:
+        lines = [
+            f"【{action}提醒】{label}({state.symbol}) "
+            f"现价 {price:.3f} 已{verb}目标价 {target.target_price:.3f}！",
+            f"  昨收={state.prev_close:.3f}  {fmt_change(price, state.prev_close)}",
+        ]
     if target.memo:
         lines.append(f"  操作: {target.memo}")
     if target.notes:
@@ -137,7 +165,10 @@ def monitor(
         for t in targets:
             label = alias_map.get(t.symbol, t.symbol)
             extra = f"  ({t.memo})" if t.memo else ""
-            logger.info("  目标价: %s %s @ %.3f%s", label, t.direction, t.target_price, extra)
+            if t.rate is not None:
+                logger.info("  涨跌幅: %s %s 阈值 %.2f%%%s", label, t.direction, t.rate, extra)
+            else:
+                logger.info("  目标价: %s %s @ %.3f%s", label, t.direction, t.target_price, extra)
             for note in t.notes or []:
                 logger.info("          └ %s", note)
     logger.info("轮询间隔: %ds | 飞书通知: %s", interval, "已启用" if webhook_url else "未配置")
@@ -153,7 +184,10 @@ def monitor(
             sym_targets = [t for t in targets if t.symbol == s]
             if sym_targets:
                 for t in sym_targets:
-                    line = f"{label}  {t.direction} @ {t.target_price:.3f}"
+                    if t.rate is not None:
+                        line = f"{label}  {t.direction} 涨跌幅阈值 {t.rate:.2f}%"
+                    else:
+                        line = f"{label}  {t.direction} @ {t.target_price:.3f}"
                     if t.memo:
                         line += f"  ({t.memo})"
                     notify_lines.append(line)
@@ -342,7 +376,10 @@ def _print_summary(
         for t in targets:
             label = alias_map.get(t.symbol, t.symbol)
             status = "✓ 已触发" if t.triggered else "✗ 未触发"
-            tl = f"  {label} {t.direction} @ {t.target_price:.3f}  {status}"
+            if t.rate is not None:
+                tl = f"  {label} {t.direction} 涨跌幅阈值 {t.rate:.2f}%  {status}"
+            else:
+                tl = f"  {label} {t.direction} @ {t.target_price:.3f}  {status}"
             if t.memo:
                 tl += f"  ({t.memo})"
             print(tl)

@@ -68,7 +68,18 @@ def random_headers() -> dict[str, str]:
 def _is_throttled(msg: str) -> bool:
     """判断异常消息是否属于限流/反爬。"""
     low = msg.lower()
-    return any(k in low for k in ("456", "403", "limit", "频繁", "请求过多", "too many"))
+    return any(
+        k in low
+        for k in (
+            "456",
+            "403",
+            "limit",
+            "频繁",
+            "请求过多",
+            "too many",
+            "no value to decode",
+        )
+    )
 
 
 class AntiThrottle:
