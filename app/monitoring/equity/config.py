@@ -215,7 +215,8 @@ def _build_watchlist() -> list[dict[str, Any]]:
 #                卖出：change_pct >= rate 触发；买入：change_pct <= -rate 触发（配置了 rate 时不看 price）
 #   memo: 操作备忘
 #   investment_notes: 投资逻辑条目标（可选）
-#   open_drop_alert_pct: 可选，开盘大跌增持阈值(%)
+#   open_drop_alert_pct: 可选；仅配置此项的标的会推送「开盘价」飞书/高亮日志，并在此阈值(%)
+#       下推送「大跌增持」（开盘涨跌 ≤ 该值时触发，一般为负数如 -3.0）
 #   poll: 可选，默认 True；False 时不参与行情轮询（仅保留备忘）
 
 WATCHLIST: list[dict[str, Any]] = _build_watchlist()

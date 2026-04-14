@@ -262,7 +262,8 @@ def monitor(
 
                 if q["open"] > 0 and st.open_price == 0:
                     st.open_price = q["open"]
-                    if not st.open_notified:
+                    # 仅配置了 open_drop_alert_pct 的标的推送「开盘价」提醒（飞书/高亮日志）
+                    if sym in drops and not st.open_notified:
                         st.open_notified = True
                         open_msg = (
                             f"【开盘价】{label}({sym}) "
