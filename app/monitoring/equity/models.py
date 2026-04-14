@@ -36,3 +36,4 @@ class SymbolState:
     change_pct: float = 0.0
     auction_price: float = 0.0
     auction_notified_at: float = 0.0
+    pre_close_chg_notified: bool = False

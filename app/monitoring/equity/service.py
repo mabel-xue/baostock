@@ -18,18 +18,30 @@ from .quotes_tencent import fetch_realtime_quotes
 logger = logging.getLogger(__name__)
 
 
+def _pre_close_change_should_fire(phase: str, now_hm: str, at_cfg: str) -> bool:
+    """at_cfg 为 HH:MM。>=15:00 的配置在尾盘竞价段首帧触发（A 股无 15:50 交易时点）。"""
+    at = at_cfg.strip()
+    if not at or len(at) < 4:
+        return False
+    if at >= "15:00":
+        return phase == "close_auction"
+    return phase in ("afternoon", "close_auction") and now_hm >= at
+
+
 def load_watchlist() -> tuple[
     list[str],
     list[PriceTarget],
     dict[str, str],
     dict[str, str],
     dict[str, float],
+    dict[str, str],
 ]:
     symbols: list[str] = []
     targets: list[PriceTarget] = []
     alias_map: dict[str, str] = {}
     memo_map: dict[str, str] = {}
     open_drop_alerts: dict[str, float] = {}
+    pre_close_change_pct_at: dict[str, str] = {}
     for row in WATCHLIST:
         if row.get("poll", True) is False:
             continue
@@ -43,6 +55,9 @@ def load_watchlist() -> tuple[
         drop_pct = row.get("open_drop_alert_pct")
         if drop_pct is not None:
             open_drop_alerts[sym] = float(drop_pct)
+        raw_pc = row.get("pre_close_change_pct_notify_at")
+        if raw_pc is not None and str(raw_pc).strip():
+            pre_close_change_pct_at[sym] = str(raw_pc).strip()
         raw_notes = row.get("investment_notes")
         notes = list(raw_notes) if raw_notes else []
         for pt in row.get("price_targets") or []:
@@ -62,7 +77,7 @@ def load_watchlist() -> tuple[
                     rate=rate,
                 )
             )
-    return symbols, targets, alias_map, memo_map, open_drop_alerts
+    return symbols, targets, alias_map, memo_map, open_drop_alerts, pre_close_change_pct_at
 
 
 def parse_targets_cli(targets_str: str) -> list[PriceTarget]:
@@ -151,10 +166,12 @@ def monitor(
     alias_map: dict[str, str] | None = None,
     memo_map: dict[str, str] | None = None,
     open_drop_alerts: dict[str, float] | None = None,
+    pre_close_change_pct_at: dict[str, str] | None = None,
 ) -> None:
     alias_map = alias_map or {}
     memo_map = memo_map or {}
     drops = open_drop_alerts if open_drop_alerts is not None else {}
+    pre_close_at = pre_close_change_pct_at if pre_close_change_pct_at is not None else {}
     all_symbols = list(dict.fromkeys(symbols + [t.symbol for t in targets]))
     if not all_symbols:
         logger.error("未指定任何监控标的")
@@ -232,6 +249,7 @@ def monitor(
                 continue
 
             now_str = datetime.now().strftime("%H:%M:%S")
+            now_hm = datetime.now().strftime("%H:%M")
             triggered_alerts: list[str] = []
 
             for sym in all_symbols:
@@ -317,6 +335,40 @@ def monitor(
                     alert = check_target(t, st)
                     if alert:
                         triggered_alerts.append(alert)
+
+            for sym_pc, at_cfg in pre_close_at.items():
+                st_pc = states.get(sym_pc)
+                if not st_pc or st_pc.pre_close_chg_notified or st_pc.last_price <= 0:
+                    continue
+                if not _pre_close_change_should_fire(phase, now_hm, at_cfg):
+                    continue
+                st_pc.pre_close_chg_notified = True
+                label_pc = st_pc.alias or st_pc.name or sym_pc
+                chg = st_pc.change_pct
+                pc_msg = (
+                    f"【收盘前涨跌】{label_pc}({sym_pc}) "
+                    f"现价 {st_pc.last_price:.3f}，较昨收 {chg:+.2f}%。"
+                    f"\n  昨收={st_pc.prev_close:.3f}  "
+                    f"{fmt_change(st_pc.last_price, st_pc.prev_close)}"
+                )
+                if at_cfg >= "15:00":
+                    pc_msg += f"\n  （配置时点 {at_cfg}，已于尾盘竞价段推送）"
+                logger.info(pc_msg.split("\n")[0])
+                print(f"\n{'━' * 60}")
+                print(f"  {pc_msg}")
+                print(f"{'━' * 60}")
+                if webhook_url:
+                    send_feishu_post(
+                        webhook_url,
+                        f"收盘前涨跌 {label_pc}({sym_pc})",
+                        [
+                            f"现价: {st_pc.last_price:.3f}",
+                            f"较昨收: {chg:+.2f}%",
+                            f"昨收: {st_pc.prev_close:.3f}",
+                            fmt_change(st_pc.last_price, st_pc.prev_close),
+                        ],
+                        secret=get_secret(),
+                    )
 
             if poll_round % max(1, 30 // interval) == 0 or phase == "auction":
                 print(f"\n[{now_str}] {PHASE_CN.get(phase, phase)}")

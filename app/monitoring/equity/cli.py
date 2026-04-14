@@ -37,13 +37,16 @@ def main() -> None:
     cli_targets = parse_targets_cli(args.targets) if args.targets else []
 
     open_drop_alerts: dict[str, float] | None = None
+    pre_close_change_pct_at: dict[str, str] = {}
     if cli_symbols or cli_targets:
         symbols = cli_symbols
         targets = cli_targets
         alias_map: dict[str, str] = {}
         memo_map: dict[str, str] = {}
     else:
-        symbols, targets, alias_map, memo_map, open_drop_alerts = load_watchlist()
+        symbols, targets, alias_map, memo_map, open_drop_alerts, pre_close_change_pct_at = (
+            load_watchlist()
+        )
 
     if not symbols and not targets:
         print("WATCHLIST 为空且未传入命令行参数，请编辑 monitoring/equity/config.py")
@@ -60,6 +63,7 @@ def main() -> None:
         alias_map=alias_map,
         memo_map=memo_map,
         open_drop_alerts=open_drop_alerts,
+        pre_close_change_pct_at=pre_close_change_pct_at,
     )
 
 
