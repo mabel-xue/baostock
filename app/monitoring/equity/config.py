@@ -10,6 +10,8 @@ WATCHLIST: list[dict[str, Any]] = [
     {
         "code": "sh600377",
         "alias": "宁沪高速",
+        "stance": "买",
+        "focus_level": "高",
         "price_targets": [{"price": 11.10, "direction": "买入"}],
         "memo": "跌到11.1加仓，看股息率逢低分批",
         "investment_notes": [
@@ -23,6 +25,8 @@ WATCHLIST: list[dict[str, Any]] = [
     {
         "code": "sz000089",
         "alias": "深圳机场",
+        "stance": "卖",
+        "focus_level": "中",
         "price_targets": [],
         "memo": "在6.5-7.5做大波段，逢高减仓",
         "investment_notes": [
@@ -43,6 +47,8 @@ WATCHLIST: list[dict[str, Any]] = [
     {
         "code": "sz002100",
         "alias": "天康生物",
+        "stance": "卖",
+        "focus_level": "高",
         "price_targets": [{"rate": 8.0, "direction": "卖出"}],
         "memo": "较前收涨8%提醒（减仓）",
         "investment_notes": [
@@ -54,12 +60,16 @@ WATCHLIST: list[dict[str, Any]] = [
     {
         "code": "sh603053",
         "alias": "成都燃气",
-        "price_targets": [{"price": 9.48, "direction": "买入"}],
+        "stance": "持",
+        "focus_level": "中",
+        "price_targets": [{"price": 9.3, "direction": "买入"}],
         "memo": "跌到9.48加仓500股（徐-操作备忘）",
     },
     {
         "code": "sh601166",
         "alias": "兴业银行",
+        "stance": "持",
+        "focus_level": "高",
         "price_targets": [],
         "memo": "开盘大跌3%以上增持",
         "open_drop_alert_pct": -3.0,
@@ -67,6 +77,8 @@ WATCHLIST: list[dict[str, Any]] = [
     {
         "code": "sz000001",
         "alias": "平安银行",
+        "stance": "买",
+        "focus_level": "高",
         "price_targets": [],
         "memo": "开盘大跌3%以上增持",
         "open_drop_alert_pct": -3.0,
@@ -76,22 +88,77 @@ WATCHLIST: list[dict[str, Any]] = [
         ],
         "buy_thesis": ["徐老师看好业绩反转"],
     },
-    # ==============ETF==============
-    {"code": "sh159363", "alias": "创业板人工智能ETF"},
+    {
+        "code": "sh600036",
+        "alias": "招商银行",
+        "stance": "持",
+        "focus_level": "低",
+        "price_targets": [],
+        "buy_reason": [
+            "股份航质地最好的，分红持久稳定，作为长期持有的优质资产",
+            "徐老师持有",
+        ],
+        "memo": "逢低/大跌增持，周期小幅定投",
+        "poll": False,
+    },
+    {
+        "code": "sh600016",
+        "alias": "民生银行",
+        "stance": "卖",
+        "focus_level": "低",
+        "price_targets": [],
+        "memo": "跌下3元且股息率>5.5%增持，逢高减仓",
+        "investment_notes": [
+           "抓住战斗机会，低成本增持100股民生银行。（永久锁仓分红）(徐260210)",
+        ],
+    },
+    # ==============ETF信==============
+{
+        "code": "sh513330",
+        "alias": "恒生互联网ETF华夏",
+        "stance": "卖",
+        "focus_level": "中",
+        "memo": "波段操作，收益率>20%减仓",
+        "investment_notes": [
+            "徐老师不投香港科技公司，腾讯、bilibili已经是成熟的公司了（徐260419课）"
+        ],
+    },
     {
         "code": "sz159632",
         "alias": "纳斯达克ETF华安",
+        "stance": "持",
+        "focus_level": "中",
         "price_targets": [{"price": 1.600, "direction": "买入"}],
         "memo": "1.6分批建仓，等暴跌机会",
         "investment_notes": [
             "纳斯达克ETF华安，跟踪纳斯达克100指数",
-            "纳斯达克一定会跌，可能经历暴跌（徐329）",
+            "纳斯达克一定会跌，可能经历暴跌（徐329课）",
             "1.6分批建仓，耐心等待暴跌机会",
         ],
     },
     {
+        "code": "sh516670",
+        "alias": "畜牧养殖ETF招商",
+        "stance": "卖",
+        "focus_level": "中",
+        "price_targets": [],
+        "memo": "",
+        "investment_notes": [
+            "猪肉不再关注（徐260329课程）",
+        ],
+    },
+     # ==============ETF普==============
+    {
+        "code": "sh159363",
+        "alias": "创业板人工智能ETF",
+        "stance": "观",
+        "focus_level": "低",
+    },
+    {
         "code": "sz159905",
         "alias": "红利ETF工银",
+        "stance": "持",
+        "focus_level": "中",
         "price_targets": [],
         "memo": "",
         "investment_notes": [
@@ -102,6 +169,8 @@ WATCHLIST: list[dict[str, Any]] = [
     {
         "code": "sh512690",
         "alias": "酒ETF",
+        "stance": "观",
+        "focus_level": "中",
         "price_targets": [],
         "memo": "",
         "investment_notes": [
@@ -110,17 +179,10 @@ WATCHLIST: list[dict[str, Any]] = [
         ],
     },
     {
-        "code": "sh516670",
-        "alias": "畜牧养殖ETF招商",
-        "price_targets": [],
-        "memo": "",
-        "investment_notes": [
-            "猪肉不再关注（徐老师329课程）",
-        ],
-    },
-    {
         "code": "sz160127",
         "alias": "南方消费LOF",
+        "stance": "观",
+        "focus_level": "中",
         "price_targets": [],
         "memo": "",
         "pre_close_change_pct_notify_at": "14:50",
@@ -131,6 +193,8 @@ WATCHLIST: list[dict[str, Any]] = [
     {
         "code": "sz159781",
         "alias": "科创创业ETF易方达",
+        "stance": "观",
+        "focus_level": "中",
         "price_targets": [],
         "memo": "",
         "pre_close_change_pct_notify_at": "14:50",
@@ -141,6 +205,8 @@ WATCHLIST: list[dict[str, Any]] = [
     {
         "code": "sz159941",
         "alias": "广发纳斯达克100ETF",
+        "stance": "观",
+        "focus_level": "中",
         "price_targets": [],
         "memo": "",
         "pre_close_change_pct_notify_at": "14:50",
@@ -151,6 +217,8 @@ WATCHLIST: list[dict[str, Any]] = [
     {
         "code": "sh562500",
         "alias": "机器人ETF",
+        "stance": "观",
+        "focus_level": "中",
         "price_targets": [],
         "memo": "",
         "pre_close_change_pct_notify_at": "14:50",
@@ -162,6 +230,8 @@ WATCHLIST: list[dict[str, Any]] = [
     {
         "code": "sz159611",
         "alias": "电力ETF广发",
+        "stance": "持",
+        "focus_level": "中",
         "price_targets": [],
         "memo": "",
         "pre_close_change_pct_notify_at": "14:50",
@@ -173,6 +243,8 @@ WATCHLIST: list[dict[str, Any]] = [
     {
         "code": "sh510300",
         "alias": "沪深300ETF",
+        "stance": "观",
+        "focus_level": "低",
         "price_targets": [],
         "memo": "",
         "investment_notes": [
@@ -182,6 +254,8 @@ WATCHLIST: list[dict[str, Any]] = [
     {
         "code": "sh510900",
         "alias": "恒生中国企业ETF",
+        "stance": "观",
+        "focus_level": "中",
         "price_targets": [],
         "memo": "",
         "investment_notes": [
@@ -193,6 +267,8 @@ WATCHLIST: list[dict[str, Any]] = [
     {
         "code": "022930",
         "alias": "易方达中证A500ETF联接Y",
+        "stance": "观",
+        "focus_level": "低",
         "price_targets": [],
         "memo": "",
         "poll": False,
@@ -207,6 +283,8 @@ WATCHLIST: list[dict[str, Any]] = [
 # 常用键（均可按需增删）:
 #   code: 腾讯行情格式 sh/sz+6 位；场外基金可写 6 位代码并设 poll=False
 #   alias: 简称（本文件内写死）
+#   stance: 可选；操作取向说明，取值 买|卖|持|观，仅作文档/筛选，监控逻辑不读取
+#   focus_level: 可选；关注等级（高|中|低），主观优先级备忘，监控逻辑不读取
 #   price_targets: [{"price": float, "direction": "买入"|"卖出"}, ...]
 #                或 {"rate": float, "direction": ...} — rate 为相对昨收涨跌幅阈值(%)：
 #                卖出：change_pct >= rate 触发；买入：change_pct <= -rate 触发（配置了 rate 时不看 price）
